@@ -1,0 +1,6 @@
+Actual \ Predicted,manipulated_front,scratch_head,scratch_neck,thread_side,thread_top
+manipulated_front,0,0,0,2,3
+scratch_head,0,1,1,2,1
+scratch_neck,0,0,0,5,0
+thread_side,0,0,1,2,1
+thread_top,0,1,0,2,1

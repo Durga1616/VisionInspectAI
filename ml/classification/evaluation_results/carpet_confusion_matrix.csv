@@ -1,0 +1,6 @@
+Actual \ Predicted,color,cut,hole,metal_contamination,thread
+color,1,0,1,0,2
+cut,0,2,0,0,2
+hole,1,1,1,1,0
+metal_contamination,0,0,1,2,1
+thread,0,0,0,0,4

@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+
+# Frontend dependencies/build
+node_modules/
+frontend/dist/
+
+# MVTec dataset
+ml/dataset/
+ml/yolo/dataset/
+ml/yolo/all_categories/
+ml/yolo/comparison_results/
+*.tar.xz
+
+# YOLO/training/prediction outputs
+ml/runs/
+ml/yolo/runs/
+runs/
+
+# Uploaded images
+backend/uploads/
+uploads/
+
+# Trained model files
+*.pt
+*.pth
+*.onnx
+
+# Logs / IDE
+*.log
+.vscode/
+.idea/
+
+# ALL ML datasets
+ml/**/dataset/
+**/dataset/
+
+# Python environments
+**/.venv/
+**/venv/
+
+# ML models
+*.pt
+*.pth
+*.onnx
+
+# ML outputs
+**/runs/
+**/comparison_results/
+
+# Frontend
+**/node_modules/
+frontend/dist/
+
+# Uploads
+**/uploads/
+
+# Environment/secrets
+.env
+**/.env

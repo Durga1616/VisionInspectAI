@@ -1,0 +1,77 @@
+{
+    "bottle": {
+        "threshold": 0.002081,
+        "validation_f1": 0.8611,
+        "holdout_f1": 0.8493
+    },
+    "cable": {
+        "threshold": 0.00367639,
+        "validation_f1": 0.7903,
+        "holdout_f1": 0.6957
+    },
+    "capsule": {
+        "threshold": 0.00102486,
+        "validation_f1": 0.918,
+        "holdout_f1": 0.8319
+    },
+    "carpet": {
+        "threshold": 0.00870145,
+        "validation_f1": 0.8738,
+        "holdout_f1": 0.82
+    },
+    "grid": {
+        "threshold": 0.00379088,
+        "validation_f1": 0.9508,
+        "holdout_f1": 0.8276
+    },
+    "hazelnut": {
+        "threshold": 0.00039978,
+        "validation_f1": 0.8571,
+        "holdout_f1": 0.8451
+    },
+    "leather": {
+        "threshold": 0.00126328,
+        "validation_f1": 0.8829,
+        "holdout_f1": 0.8077
+    },
+    "metal_nut": {
+        "threshold": 0.00125468,
+        "validation_f1": 0.9038,
+        "holdout_f1": 0.8627
+    },
+    "pill": {
+        "threshold": 0.00088011,
+        "validation_f1": 0.9139,
+        "holdout_f1": 0.92
+    },
+    "screw": {
+        "threshold": 0.00050053,
+        "validation_f1": 0.9457,
+        "holdout_f1": 0.9048
+    },
+    "tile": {
+        "threshold": 0.00273926,
+        "validation_f1": 0.8687,
+        "holdout_f1": 0.7957
+    },
+    "toothbrush": {
+        "threshold": 0.00732335,
+        "validation_f1": 0.875,
+        "holdout_f1": 0.7273
+    },
+    "transistor": {
+        "threshold": 0.00171571,
+        "validation_f1": 0.5294,
+        "holdout_f1": 0.5915
+    },
+    "wood": {
+        "threshold": 0.00118164,
+        "validation_f1": 0.9275,
+        "holdout_f1": 0.8235
+    },
+    "zipper": {
+        "threshold": 0.00189607,
+        "validation_f1": 0.9051,
+        "holdout_f1": 0.8485
+    }
+}

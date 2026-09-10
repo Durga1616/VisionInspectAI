@@ -1,0 +1,5 @@
+Actual \ Predicted,bent_lead,cut_lead,damaged_case,misplaced
+bent_lead,0,0,2,0
+cut_lead,0,0,1,1
+damaged_case,1,0,1,0
+misplaced,1,0,0,1

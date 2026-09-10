@@ -1,0 +1,6 @@
+Actual \ Predicted,crack,glue_strip,gray_stroke,oil,rough
+crack,4,0,0,0,0
+glue_strip,0,2,1,0,1
+gray_stroke,0,0,3,0,0
+oil,0,0,0,4,0
+rough,0,0,1,0,2

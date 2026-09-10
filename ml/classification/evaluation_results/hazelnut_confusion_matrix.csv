@@ -1,0 +1,5 @@
+Actual \ Predicted,crack,cut,hole,print
+crack,1,0,2,1
+cut,1,2,1,0
+hole,0,0,3,1
+print,0,0,0,4

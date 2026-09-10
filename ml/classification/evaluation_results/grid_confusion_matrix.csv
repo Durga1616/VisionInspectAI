@@ -1,0 +1,6 @@
+Actual \ Predicted,bent,broken,glue,metal_contamination,thread
+bent,0,0,2,1,0
+broken,0,2,1,0,0
+glue,0,0,3,0,0
+metal_contamination,0,1,1,1,0
+thread,0,1,1,1,0
