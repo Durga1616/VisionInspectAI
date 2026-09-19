@@ -37,12 +37,12 @@ CATEGORIES = [
 # TRAINING SETTINGS
 # ============================================================
 
-EPOCHS = 150
-IMAGE_SIZE = 1024
-BATCH_SIZE = 4
-PATIENCE = 30
+EPOCHS = 30
+IMAGE_SIZE = 640
+BATCH_SIZE = 8
+PATIENCE = 10
 
-DEVICE = "cpu"
+DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
 # ============================================================
 # TRAIN EACH CATEGORY
@@ -80,7 +80,9 @@ for index, category in enumerate(CATEGORIES, start=1):
 
     try:
 
-        # Fresh pretrained YOLO11s model
+        # Fresh pretrained YOLO11s model. The dataset contains only defect
+        # images with boxes generated from the corresponding ground-truth
+        # masks; GOOD images are intentionally not used as defect labels.
         model = YOLO("yolo11s.pt")
 
         model.train(

@@ -10,9 +10,9 @@ from PIL import Image
 from torchvision import models, transforms
 from ultralytics import YOLO
 
-from inference.quality_assessment import (
-    assess_quality,
-    analyze_image_quality
+from inference.quality_assessment import assess_quality
+from preprocessing.preprocess import (
+    preprocess_image as preprocess_training_image,
 )
 
 
@@ -38,7 +38,23 @@ CLASSIFICATION_MODELS_DIR = (
     BASE_DIR / "classification" / "saved_models"
 )
 
-IMAGE_SIZE = 256
+IMAGE_SIZE = 224
+
+# The autoencoder has already confirmed the image is anomalous. Use a stricter
+# localization cutoff so weak background predictions are not shown as defects.
+YOLO_CONFIDENCE = 0.10
+
+# These detectors have poor validation precision and need a higher acceptance
+# floor than the other categories to prevent weak background predictions from
+# being shown as defects.
+CATEGORY_YOLO_CONFIDENCE = {
+    "carpet": 0.25,
+    "cable": 0.25,
+    "capsule": 0.25,
+    "grid": 0.25,
+    "toothbrush": 0.35,
+    "transistor": 0.35,
+}
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available()
@@ -74,109 +90,58 @@ CATEGORIES = [
 # ============================================================
 
 class ConvAutoencoder(nn.Module):
-
     def __init__(self):
-
         super().__init__()
 
         self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, 3, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
 
-            nn.Conv2d(
-                3,
-                32,
-                3,
-                2,
-                1
-            ),
+            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
 
-            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
 
-            nn.Conv2d(
-                32,
-                64,
-                3,
-                2,
-                1
-            ),
-
-            nn.ReLU(),
-
-            nn.Conv2d(
-                64,
-                128,
-                3,
-                2,
-                1
-            ),
-
-            nn.ReLU(),
-
-            nn.Conv2d(
-                128,
-                256,
-                3,
-                2,
-                1
-            ),
-
-            nn.ReLU()
+            nn.Conv2d(128, 256, 3, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
         )
 
         self.decoder = nn.Sequential(
-
             nn.ConvTranspose2d(
-                256,
-                128,
-                3,
-                2,
-                1,
+                256, 128, 3, 2, 1,
                 output_padding=1
             ),
-
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(
-                128,
-                64,
-                3,
-                2,
-                1,
-                output_padding=1
-            ),
-
-            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
 
             nn.ConvTranspose2d(
-                64,
-                32,
-                3,
-                2,
-                1,
+                128, 64, 3, 2, 1,
                 output_padding=1
             ),
-
-            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
 
             nn.ConvTranspose2d(
-                32,
-                3,
-                3,
-                2,
-                1,
+                64, 32, 3, 2, 1,
                 output_padding=1
             ),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
 
+            nn.ConvTranspose2d(
+                32, 3, 3, 2, 1,
+                output_padding=1
+            ),
             nn.Sigmoid()
         )
 
     def forward(self, x):
-
-        encoded = self.encoder(x)
-
-        decoded = self.decoder(encoded)
-
-        return decoded
-
+        return self.decoder(self.encoder(x))
 
 # ============================================================
 # LOAD THRESHOLDS
@@ -284,51 +249,16 @@ def load_autoencoder(category):
 # ============================================================
 
 def preprocess_image(image_path):
+    normalized, _ = preprocess_training_image(image_path)
 
-    image = cv2.imread(
-        str(image_path)
-    )
-
-    if image is None:
-
+    if normalized.shape != (IMAGE_SIZE, IMAGE_SIZE, 3):
         raise ValueError(
-            f"Unable to read image:\n"
-            f"{image_path}"
+            f"Unexpected preprocessed image shape: {normalized.shape}"
         )
-
-    image = cv2.cvtColor(
-        image,
-        cv2.COLOR_BGR2RGB
-    )
-
-    image = cv2.resize(
-        image,
-        (
-            IMAGE_SIZE,
-            IMAGE_SIZE
-        )
-    )
-
-    image = (
-        image.astype(
-            np.float32
-        )
-        / 255.0
-    )
-
-    image = np.transpose(
-        image,
-        (2, 0, 1)
-    )
-
-    image = np.expand_dims(
-        image,
-        axis=0
-    )
 
     tensor = torch.from_numpy(
-        image
-    ).to(DEVICE)
+        np.transpose(normalized, (2, 0, 1))
+    ).unsqueeze(0).to(DEVICE)
 
     return tensor
 
@@ -356,7 +286,7 @@ def detect_anomaly(
             ) ** 2
         ).item()
 
-    if error > threshold:
+    if error >= threshold:
 
         status = "DEFECT"
 
@@ -375,43 +305,50 @@ def get_yolo_model_path(category):
 
     if category == "bottle":
 
-        path = (
-            YOLO_DIR
-            / "runs"
-            / "bottle_defect_improved"
-            / "weights"
-            / "best.pt"
-        )
+        candidates = [
+            YOLO_DIR / "runs" / "bottle_defect_improved" / "weights" / "best.pt",
+            YOLO_DIR / "runs" / "bottle_defect" / "weights" / "best.pt",
+            YOLO_DIR / "runs" / "bottle_defect_final" / "weights" / "best.pt",
+        ]
 
     elif category in [
         "toothbrush",
         "transistor",
-        "screw"
+        "screw",
+        "carpet",
+        "wood"
     ]:
 
-        path = (
-            YOLO_DIR
-            / "runs"
-            / f"{category}_defect_retrained"
-            / "weights"
-            / "best.pt"
-        )
+        candidates = [
+            YOLO_DIR / "runs" / f"{category}_defect_final" / "weights" / "best.pt",
+            YOLO_DIR / "runs" / f"{category}_defect_retrained" / "weights" / "best.pt",
+            YOLO_DIR / "runs" / f"{category}_defect" / "weights" / "best.pt",
+        ]
 
     else:
 
-        path = (
-            YOLO_DIR
-            / "runs"
-            / f"{category}_defect"
-            / "weights"
-            / "best.pt"
-        )
+        candidates = [
+            YOLO_DIR / "runs" / f"{category}_defect_final" / "weights" / "best.pt",
+            YOLO_DIR / "runs" / f"{category}_defect" / "weights" / "best.pt",
+        ]
 
-    return path
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0]
 
 
 # ============================================================
 # YOLO DEFECT LOCALIZATION
+# ============================================================
+#
+# Robust inference:
+# 1. High-resolution YOLO inference
+# 2. Augmented YOLO inference
+# 3. Merge duplicate detections
+#
+# YOLO remains the primary localization model.
 # ============================================================
 
 def localize_defect(
@@ -434,81 +371,298 @@ def localize_defect(
         str(model_path)
     )
 
-    results = model.predict(
+    source_image = cv2.imread(str(image_path))
+
+    if source_image is None:
+        raise ValueError(
+            f"Unable to read image for YOLO localization:\n{image_path}"
+        )
+
+    image_height, image_width = source_image.shape[:2]
+    image_area = float(image_width * image_height)
+    category_confidence = CATEGORY_YOLO_CONFIDENCE.get(
+        category,
+        YOLO_CONFIDENCE,
+    )
+
+    gray = cv2.cvtColor(source_image, cv2.COLOR_BGR2GRAY)
+
+    # Estimate the product from pixels that differ from the image-border
+    # background. A fixed dark-pixel threshold fails on dark products placed
+    # on white backgrounds (for example zipper images), causing the blank
+    # margin to be treated as the product region.
+    border_size = max(2, min(image_height, image_width) // 40)
+    border_pixels = np.concatenate(
+        [
+            source_image[:border_size].reshape(-1, 3),
+            source_image[-border_size:].reshape(-1, 3),
+            source_image[:, :border_size].reshape(-1, 3),
+            source_image[:, -border_size:].reshape(-1, 3),
+        ],
+        axis=0,
+    ).astype(np.float32)
+    border_color = np.median(border_pixels, axis=0)
+    color_distance = np.linalg.norm(
+        source_image.astype(np.float32) - border_color,
+        axis=2,
+    )
+    foreground = np.where(color_distance >= 18.0, 255, 0).astype(np.uint8)
+    kernel = np.ones((5, 5), np.uint8)
+    foreground = cv2.morphologyEx(foreground, cv2.MORPH_OPEN, kernel)
+    foreground = cv2.morphologyEx(foreground, cv2.MORPH_CLOSE, kernel)
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        foreground,
+        connectivity=8,
+    )
+
+    product_bbox = None
+    max_area = 0
+    minimum_product_area = max(1000, int(image_area * 0.01))
+
+    for label_idx in range(1, num_labels):
+        x, y, w, h, area = stats[label_idx]
+        if area < minimum_product_area:
+            continue
+        if area > max_area:
+            max_area = area
+            product_bbox = (x, y, x + w, y + h)
+
+    # --------------------------------------------------------
+    # PASS 1: High-resolution inference
+    # --------------------------------------------------------
+    results_high = model.predict(
         source=str(image_path),
-
-        # Keep high resolution for small manufacturing defects
-        imgsz=800,
-
-        # Lower confidence to avoid missing weak defects
-        conf=0.05,
-
-        # Remove highly overlapping duplicate boxes
+        imgsz=1280,
+        conf=YOLO_CONFIDENCE,
         iou=0.45,
-
-        # Allow multiple defects in one image
         max_det=20,
-
         verbose=False
+    )
+
+    # --------------------------------------------------------
+    # PASS 2: Augmented inference
+    # --------------------------------------------------------
+    results_aug = model.predict(
+        source=str(image_path),
+        imgsz=1280,
+        conf=YOLO_CONFIDENCE,
+        iou=0.45,
+        max_det=20,
+        augment=True,
+        verbose=False
+    )
+
+    raw_detections = []
+
+    for results in [results_high, results_aug]:
+
+        for result in results:
+
+            if result.boxes is None:
+                continue
+
+            for box in result.boxes:
+
+                coordinates = (
+                    box.xyxy[0]
+                    .cpu()
+                    .numpy()
+                    .tolist()
+                )
+
+                confidence = float(
+                    box.conf[0]
+                    .cpu()
+                    .item()
+                )
+
+                if confidence < category_confidence:
+                    continue
+
+                x1, y1, x2, y2 = coordinates
+
+                if x2 <= x1 or y2 <= y1:
+                    continue
+
+                box_area = (x2 - x1) * (y2 - y1)
+                touches_border = (
+                    x1 <= 1
+                    or y1 <= 1
+                    or x2 >= image_width - 1
+                    or y2 >= image_height - 1
+                )
+
+                # Discard large border-touching boxes from the background. They
+                # are usually false positives from dark margins or the image
+                # frame, not actual product defects.
+                if (
+                    touches_border
+                    and (
+                        box_area / image_area >= 0.03
+                        or category in {
+                            "carpet",
+                            "toothbrush",
+                            "transistor",
+                        }
+                    )
+                ):
+                    continue
+
+                # Carpet images can contain curtains, walls, and furniture at
+                # the frame edges. Those regions are not the carpet surface.
+                if category == "carpet":
+                    box_center_x = (x1 + x2) / 2.0
+                    box_center_y = (y1 + y2) / 2.0
+                    if (
+                        box_center_x < image_width * 0.25
+                        or box_center_x > image_width * 0.80
+                        or box_center_y < image_height * 0.30
+                    ):
+                        continue
+
+                # The toothbrush dataset uses a centered product on a dark
+                # background. Edge detections are background artifacts from
+                # this low-precision detector, not valid defect locations.
+                if category == "toothbrush":
+                    box_center_x = (x1 + x2) / 2.0
+                    if (
+                        box_center_x < image_width * 0.25
+                        or box_center_x > image_width * 0.75
+                    ):
+                        continue
+
+                # Reject detections placed far outside the product region when a
+                # dominant product blob has been found. A true defect should
+                # overlap the product silhouette substantially, not sit in the
+                # background or padded blank areas.
+                if product_bbox is not None:
+                    px0, py0, px1, py1 = product_bbox
+                    product_area = max(1.0, (px1 - px0) * (py1 - py0))
+
+                    inter_x1 = max(x1, px0)
+                    inter_y1 = max(y1, py0)
+                    inter_x2 = min(x2, px1)
+                    inter_y2 = min(y2, py1)
+                    inter_w = max(0.0, inter_x2 - inter_x1)
+                    inter_h = max(0.0, inter_y2 - inter_y1)
+                    overlap_area = inter_w * inter_h
+                    overlap_ratio = overlap_area / max(box_area, 1.0)
+                    box_center_x = (x1 + x2) / 2.0
+                    box_center_y = (y1 + y2) / 2.0
+
+                    if (
+                        box_center_x < px0 or box_center_x > px1 or
+                        box_center_y < py0 or box_center_y > py1
+                    ):
+                        continue
+
+                    if overlap_ratio < 0.20:
+                        continue
+
+                    if box_area > 0.75 * product_area and overlap_area < 0.25 * product_area:
+                        continue
+
+                raw_detections.append({
+                    "class": "defect",
+                    "confidence": confidence,
+                    "bbox": {
+                        "x1": x1,
+                        "y1": y1,
+                        "x2": x2,
+                        "y2": y2
+                    }
+                })
+
+    # --------------------------------------------------------
+    # Remove duplicate boxes from the two inference passes
+    # --------------------------------------------------------
+    def box_iou(box_a, box_b):
+
+        ax1, ay1 = box_a["x1"], box_a["y1"]
+        ax2, ay2 = box_a["x2"], box_a["y2"]
+
+        bx1, by1 = box_b["x1"], box_b["y1"]
+        bx2, by2 = box_b["x2"], box_b["y2"]
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+
+        intersection = inter_w * inter_h
+
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+
+        union = area_a + area_b - intersection
+
+        if union <= 0:
+            return 0.0
+
+        return intersection / union
+
+    def box_overlap_ratio(box_a, box_b):
+        ax1, ay1 = box_a["x1"], box_a["y1"]
+        ax2, ay2 = box_a["x2"], box_a["y2"]
+        bx1, by1 = box_b["x1"], box_b["y1"]
+        bx2, by2 = box_b["x2"], box_b["y2"]
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        intersection = (
+            max(0.0, inter_x2 - inter_x1)
+            * max(0.0, inter_y2 - inter_y1)
+        )
+
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        smaller_area = min(area_a, area_b)
+
+        if smaller_area <= 0:
+            return 0.0
+
+        return intersection / smaller_area
+
+    raw_detections.sort(
+        key=lambda d: d["confidence"],
+        reverse=True
     )
 
     detections = []
 
-    for result in results:
+    for candidate in raw_detections:
 
-        if result.boxes is None:
-            continue
+        duplicate = False
 
-        for box in result.boxes:
+        for kept in detections:
 
-            coordinates = (
-                box.xyxy[0]
-                .cpu()
-                .numpy()
-                .tolist()
-            )
+            if (
+                box_iou(candidate["bbox"], kept["bbox"]) >= 0.45
+                or box_overlap_ratio(candidate["bbox"], kept["bbox"]) >= 0.70
+            ):
 
-            confidence = float(
-                box.conf[0]
-                .cpu()
-                .item()
-            )
+                duplicate = True
+                break
 
-            x1, y1, x2, y2 = coordinates
-
-            if x2 <= x1 or y2 <= y1:
-                continue
+        if not duplicate:
 
             detections.append({
-
                 "class": "defect",
-
                 "confidence": round(
-                    confidence,
+                    candidate["confidence"],
                     4
                 ),
-
                 "bbox": {
-
-                    "x1": round(
-                        x1,
-                        2
-                    ),
-
-                    "y1": round(
-                        y1,
-                        2
-                    ),
-
-                    "x2": round(
-                        x2,
-                        2
-                    ),
-
-                    "y2": round(
-                        y2,
-                        2
-                    )
+                    "x1": round(candidate["bbox"]["x1"], 2),
+                    "y1": round(candidate["bbox"]["y1"], 2),
+                    "x2": round(candidate["bbox"]["x2"], 2),
+                    "y2": round(candidate["bbox"]["y2"], 2)
                 }
             })
 
@@ -809,46 +963,6 @@ def inspect_image(
             f"{image_path}"
         )
 
-    # ========================================================
-    # IMAGE QUALITY ANALYSIS
-    # ========================================================
-
-    print()
-    print("IMAGE QUALITY ANALYSIS")
-    print("-" * 70)
-
-    image_quality = analyze_image_quality(
-        image_path
-    )
-
-    print(
-        f"Resolution : {image_quality['resolution']}"
-    )
-
-    print(
-        f"Brightness : {image_quality['brightness']}"
-    )
-
-    print(
-        f"Contrast   : {image_quality['contrast']}"
-    )
-
-    print(
-        f"Sharpness  : {image_quality['sharpness']}"
-    )
-
-    print(
-        f"Noise      : {image_quality['noise']}"
-    )
-
-    print(
-        f"Quality    : {image_quality['quality_score']}"
-    )
-
-    print(
-        f"Status     : {image_quality['quality_status']}"
-    )
-
     print()
     print("=" * 70)
     print("VISIONINSPECT AI - INSPECTION")
@@ -926,87 +1040,54 @@ def inspect_image(
         f"Decision  : {status}"
     )
 
-
     # ========================================================
-    # GOOD PRODUCT
+    # AUTOENCODER GATES THE FLOW
     # ========================================================
-
+    # If the autoencoder marks the image as GOOD, stop here and
+    # do not run YOLO. If it marks the image as DEFECT, then
+    # use YOLO only to localize the defect and classify it.
+    # ========================================================
     if status == "GOOD":
 
         print()
-        print("FINAL RESULT")
+        print("AUTOENCODER DECISION : GOOD")
         print("-" * 70)
-
-        print(
-            "Status       : GOOD"
-        )
-
-        print(
-            "YOLO         : Not required"
-        )
-
-        print(
-            "Classifier   : Not required"
-        )
-
-        print(
-            "Defects      : 0"
-        )
+        print("YOLO not run because the image passed the autoencoder screening.")
+        print("FINAL DECISION : GOOD")
 
         return {
-
-            "category":
-                category,
-
-            "status":
-                "GOOD",
-
-            "reconstruction_error":
-                round(
-                    reconstruction_error,
-                    8
-                ),
-
-            "threshold":
-                round(
-                    threshold,
-                    8
-                ),
-
+            "category": category,
+            "status": "GOOD",
+            "reconstruction_error": round(
+                reconstruction_error,
+                8
+            ),
+            "threshold": round(
+                threshold,
+                8
+            ),
+            "classification": {
+                "defect_type": "unknown",
+                "confidence": 0,
+                "model": None
+            },
             "quality_assessment": {
-
                 "severity": {
-
                     "score": 0,
-
                     "level": "Low",
-
                     "components": {
-
                         "size": 0,
-
                         "location": 0,
-
                         "defect_type": 0,
-
                         "confidence": 0
                     }
                 },
-
-                "quality_decision":
-                    "PASS",
-
+                "quality_decision": "PASS",
                 "recommendation":
-                    "No defect detected. "
-                    "Product passes inspection."
+                    "No defect detected. Product passes inspection."
             },
-
-            "defects": [],
-
-            "image_quality":
-                image_quality
+            "defects": []
         }
-
 
     # ========================================================
     # DEFECT → YOLO
@@ -1025,6 +1106,106 @@ def inspect_image(
         f"Detections : "
         f"{len(detections)}"
     )
+
+
+    # ========================================================
+    # NO YOLO DETECTION
+    # ========================================================
+    # Never turn an Autoencoder anomaly into GOOD merely
+    # because YOLO could not localize it.
+    # ========================================================
+    if not detections and status == "DEFECT":
+
+        print()
+        print("NO DEFECT LOCATION FOUND")
+        print("-" * 70)
+        print(
+            "Autoencoder detected an anomaly, "
+            "but YOLO found no location."
+        )
+        print("FINAL DECISION : DEFECT")
+        print("Recommendation  : Manual inspection required.")
+
+        return {
+            "category": category,
+            "status": "DEFECT",
+            "reconstruction_error": round(
+                reconstruction_error,
+                8
+            ),
+            "threshold": round(
+                threshold,
+                8
+            ),
+            "classification": {
+                "defect_type": "unknown",
+                "confidence": 0,
+                "model": None
+            },
+            "quality_assessment": {
+                "severity": {
+                    "score": 0,
+                    "level": "Low",
+                    "components": {
+                        "size": 0,
+                        "location": 0,
+                        "defect_type": 0,
+                        "confidence": 0
+                    }
+                },
+                "quality_decision": "FAIL",
+                "recommendation":
+                    "Anomaly detected but no defect location was identified. "
+                    "Manual inspection required."
+            },
+            "defects": []
+        }
+
+    # ========================================================
+    # NO ANOMALY AND NO YOLO DETECTION → GOOD
+    # ========================================================
+    if not detections and status == "GOOD":
+
+        print()
+        print("NO DEFECT DETECTED")
+        print("-" * 70)
+        print("Autoencoder and YOLO found no defect.")
+        print("FINAL DECISION : GOOD")
+
+        return {
+            "category": category,
+            "status": "GOOD",
+            "reconstruction_error": round(
+                reconstruction_error,
+                8
+            ),
+            "threshold": round(
+                threshold,
+                8
+            ),
+            "classification": {
+                "defect_type": "unknown",
+                "confidence": 0,
+                "model": None
+            },
+            "quality_assessment": {
+                "severity": {
+                    "score": 0,
+                    "level": "Low",
+                    "components": {
+                        "size": 0,
+                        "location": 0,
+                        "defect_type": 0,
+                        "confidence": 0
+                    }
+                },
+                "quality_decision": "PASS",
+                "recommendation":
+                    "No defect detected. Product passes inspection."
+            },
+            "defects": []
+        }
+
 
     for index, detection in enumerate(
         detections,
@@ -1284,10 +1465,7 @@ def inspect_image(
             quality_result,
 
         "defects":
-            detections,
-
-        "image_quality":
-            image_quality
+            detections
     }
 
 

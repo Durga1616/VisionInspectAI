@@ -1,9 +1,12 @@
+import os
+import json
+import random
+import sys
+
 import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-
-from pathlib import Path
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -11,19 +14,22 @@ from sklearn.metrics import (
     f1_score,
 )
 
-# ============================================================
-# PATHS
-# ============================================================
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-DATASET_DIR = BASE_DIR / "dataset"
-MODEL_DIR = BASE_DIR / "saved_models"
-
 
 # ============================================================
-# MVTec CATEGORIES
+# CONFIGURATION
 # ============================================================
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+from preprocessing.preprocess import preprocess_image
+
+DATASET_DIR = os.path.join(BASE_DIR, "dataset")
+MODEL_DIR = os.path.join(BASE_DIR, "saved_models")
+THRESHOLD_FILE = os.path.join(BASE_DIR, "inference", "thresholds.json")
+
+IMAGE_SIZE = (224, 224)
 
 CATEGORIES = [
     "bottle",
@@ -43,22 +49,49 @@ CATEGORIES = [
     "zipper",
 ]
 
+RANDOM_SEED = 42
+
+# Percentage of normal training errors used as candidates.
+# We test several percentiles and then choose the one
+# giving the best validation F1.
+NORMAL_PERCENTILES = [
+    90,
+    92,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    99.5,
+]
+
+TEST_VALIDATION_RATIO = 0.50
+
+# Inspection must not silently accept known defective samples. Threshold
+# calibration therefore prioritizes defect recall over normal-image precision.
+MIN_DEFECT_RECALL = 1.0
+
 
 # ============================================================
-# SETTINGS
+# RANDOM SEED
 # ============================================================
 
-IMAGE_SIZE = (224, 224)
+random.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+torch.manual_seed(RANDOM_SEED)
 
-# Percentage of test data used to select threshold
-VALIDATION_RATIO = 0.5
 
-# Threshold search range
-THRESHOLD_POINTS = 100
+# ============================================================
+# DEVICE
+# ============================================================
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # ============================================================
 # AUTOENCODER
+# SAME ARCHITECTURE USED DURING TRAINING
 # ============================================================
 
 class ConvAutoencoder(nn.Module):
@@ -68,75 +101,64 @@ class ConvAutoencoder(nn.Module):
         super().__init__()
 
         self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
 
-            nn.Conv2d(
-                3, 32,
-                kernel_size=3,
-                stride=2,
-                padding=1
-            ),
-            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
 
-            nn.Conv2d(
-                32, 64,
-                kernel_size=3,
-                stride=2,
-                padding=1
-            ),
-            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
 
-            nn.Conv2d(
-                64, 128,
-                kernel_size=3,
-                stride=2,
-                padding=1
-            ),
-            nn.ReLU(),
-
-            nn.Conv2d(
-                128, 256,
-                kernel_size=3,
-                stride=2,
-                padding=1
-            ),
-            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
         )
 
         self.decoder = nn.Sequential(
-
             nn.ConvTranspose2d(
-                256, 128,
+                256,
+                128,
                 kernel_size=3,
                 stride=2,
                 padding=1,
-                output_padding=1
+                output_padding=1,
             ),
-            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
 
             nn.ConvTranspose2d(
-                128, 64,
+                128,
+                64,
                 kernel_size=3,
                 stride=2,
                 padding=1,
-                output_padding=1
+                output_padding=1,
             ),
-            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
 
             nn.ConvTranspose2d(
-                64, 32,
+                64,
+                32,
                 kernel_size=3,
                 stride=2,
                 padding=1,
-                output_padding=1
+                output_padding=1,
             ),
-            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
 
             nn.ConvTranspose2d(
-                32, 3,
+                32,
+                3,
                 kernel_size=3,
                 stride=2,
                 padding=1,
-                output_padding=1
+                output_padding=1,
             ),
             nn.Sigmoid(),
         )
@@ -144,219 +166,311 @@ class ConvAutoencoder(nn.Module):
     def forward(self, x):
 
         encoded = self.encoder(x)
-
         decoded = self.decoder(encoded)
 
         return decoded
 
 
 # ============================================================
-# IMAGE PREPROCESSING
+# LOAD IMAGE
+# IMPORTANT:
+# EXACTLY SAME PREPROCESSING AS AE TRAINING
 # ============================================================
 
 def load_image(image_path):
+    normalized, _ = preprocess_image(image_path)
+    if normalized.shape != (IMAGE_SIZE[1], IMAGE_SIZE[0], 3):
+        raise ValueError(f"Unexpected preprocessed shape: {normalized.shape}")
 
-    image = cv2.imread(
-        str(image_path)
-    )
-
-    if image is None:
-
-        return None
-
-    image = cv2.resize(
-        image,
-        IMAGE_SIZE
-    )
-
-    image = cv2.cvtColor(
-        image,
-        cv2.COLOR_BGR2RGB
-    )
-
-    image = image.astype(
-        np.float32
-    ) / 255.0
-
-    image = np.transpose(
-        image,
-        (2, 0, 1)
-    )
-
-    tensor = torch.tensor(
-        image,
-        dtype=torch.float32
-    )
-
-    return tensor.unsqueeze(0)
+    tensor = np.transpose(normalized, (2, 0, 1))
+    return torch.from_numpy(tensor).float().unsqueeze(0).to(DEVICE)
 
 
 # ============================================================
 # RECONSTRUCTION ERROR
 # ============================================================
 
-def reconstruction_error(
-    model,
-    image_path,
-    device
-):
+def reconstruction_error(model, image_path):
 
-    image = load_image(
-        image_path
-    )
-
-    if image is None:
-
-        return None
-
-    image = image.to(device)
+    image = load_image(image_path)
 
     with torch.no_grad():
 
-        reconstructed = model(
-            image
-        )
+        reconstructed = model(image)
 
         error = torch.mean(
             (image - reconstructed) ** 2
-        )
+        ).item()
 
-    return error.item()
+    return error
 
 
 # ============================================================
-# COLLECT TEST SCORES
+# LOAD MODEL
 # ============================================================
 
-def collect_test_scores(
-    model,
-    category,
-    device
-):
+def load_model(category):
 
-    test_dir = (
-        DATASET_DIR
-        / category
-        / "test"
+    model_path = os.path.join(
+        MODEL_DIR,
+        f"{category}_autoencoder.pth"
     )
 
-    samples = []
+    if not os.path.exists(model_path):
 
-    # --------------------------------------------------------
-    # GOOD IMAGES
-    # --------------------------------------------------------
-
-    good_dir = test_dir / "good"
-
-    for image_path in sorted(
-        good_dir.glob("*.png")
-    ):
-
-        score = reconstruction_error(
-            model,
-            image_path,
-            device
+        raise FileNotFoundError(
+            f"Model not found:\n{model_path}"
         )
 
-        if score is not None:
+    model = ConvAutoencoder().to(DEVICE)
 
-            samples.append(
-                (score, 0)
+    checkpoint = torch.load(
+        model_path,
+        map_location=DEVICE,
+        weights_only=False,
+    )
+
+    if isinstance(checkpoint, dict):
+
+        if "model_state_dict" in checkpoint:
+
+            model.load_state_dict(
+                checkpoint["model_state_dict"]
             )
 
-    # --------------------------------------------------------
-    # DEFECT IMAGES
-    # --------------------------------------------------------
+        elif "state_dict" in checkpoint:
 
-    defect_dirs = sorted(
-        [
-            folder
-            for folder in test_dir.iterdir()
-            if folder.is_dir()
-            and folder.name != "good"
-        ]
+            model.load_state_dict(
+                checkpoint["state_dict"]
+            )
+
+        else:
+
+            model.load_state_dict(checkpoint)
+
+    else:
+
+        model.load_state_dict(checkpoint)
+
+    model.eval()
+
+    return model
+
+
+# ============================================================
+# TRAINING GOOD ERRORS
+# ============================================================
+
+def collect_training_good_errors(model, category):
+
+    folder = os.path.join(
+        DATASET_DIR,
+        category,
+        "train",
+        "good",
     )
 
-    for defect_dir in defect_dirs:
+    if not os.path.exists(folder):
 
-        for image_path in sorted(
-            defect_dir.glob("*.png")
-        ):
+        raise FileNotFoundError(
+            f"Training good folder not found:\n{folder}"
+        )
 
-            score = reconstruction_error(
+    image_files = sorted([
+        f
+        for f in os.listdir(folder)
+        if f.lower().endswith(
+            (".png", ".jpg", ".jpeg", ".bmp")
+        )
+    ])
+
+    errors = []
+
+    for filename in image_files:
+
+        path = os.path.join(
+            folder,
+            filename
+        )
+
+        try:
+
+            error = reconstruction_error(
                 model,
-                image_path,
-                device
+                path
             )
 
-            if score is not None:
+            errors.append(error)
 
-                samples.append(
-                    (score, 1)
+        except Exception as e:
+
+            print(
+                f"Warning: failed {path}: {e}"
+            )
+
+    return np.array(
+        errors,
+        dtype=np.float32
+    )
+
+
+# ============================================================
+# TEST DATA
+#
+# GOOD  -> label 0
+# DEFECT -> label 1
+# ============================================================
+
+def collect_test_scores(model, category):
+
+    test_dir = os.path.join(
+        DATASET_DIR,
+        category,
+        "test",
+    )
+
+    if not os.path.exists(test_dir):
+
+        raise FileNotFoundError(
+            f"Test folder not found:\n{test_dir}"
+        )
+
+    scores = []
+    labels = []
+    filenames = []
+
+    # --------------------------------------------------------
+    # GOOD
+    # --------------------------------------------------------
+
+    good_dir = os.path.join(
+        test_dir,
+        "good"
+    )
+
+    if os.path.exists(good_dir):
+
+        good_files = sorted([
+            f
+            for f in os.listdir(good_dir)
+            if f.lower().endswith(
+                (".png", ".jpg", ".jpeg", ".bmp")
+            )
+        ])
+
+        for filename in good_files:
+
+            path = os.path.join(
+                good_dir,
+                filename
+            )
+
+            try:
+
+                error = reconstruction_error(
+                    model,
+                    path
                 )
 
-    return samples
+                scores.append(error)
+                labels.append(0)
+                filenames.append(path)
 
+            except Exception as e:
 
-# ============================================================
-# FIND BEST THRESHOLD
-# ============================================================
+                print(
+                    f"Warning: failed {path}: {e}"
+                )
 
-def find_best_threshold(
-    scores,
-    labels
-):
+    # --------------------------------------------------------
+    # DEFECTS
+    # --------------------------------------------------------
 
-    minimum = min(scores)
+    defect_folders = sorted([
+        folder
+        for folder in os.listdir(test_dir)
+        if os.path.isdir(
+            os.path.join(test_dir, folder)
+        )
+        and folder != "good"
+    ])
 
-    maximum = max(scores)
+    for defect_type in defect_folders:
 
-    thresholds = np.linspace(
-        minimum,
-        maximum,
-        THRESHOLD_POINTS
-    )
-
-    best_threshold = thresholds[0]
-
-    best_f1 = -1.0
-
-    for threshold in thresholds:
-
-        predictions = [
-            1 if score > threshold else 0
-            for score in scores
-        ]
-
-        f1 = f1_score(
-            labels,
-            predictions,
-            zero_division=0
+        defect_dir = os.path.join(
+            test_dir,
+            defect_type
         )
 
-        if f1 > best_f1:
+        defect_files = sorted([
+            f
+            for f in os.listdir(defect_dir)
+            if f.lower().endswith(
+                (".png", ".jpg", ".jpeg", ".bmp")
+            )
+        ])
 
-            best_f1 = f1
+        for filename in defect_files:
 
-            best_threshold = threshold
+            path = os.path.join(
+                defect_dir,
+                filename
+            )
 
-    return best_threshold
+            try:
+
+                error = reconstruction_error(
+                    model,
+                    path
+                )
+
+                scores.append(error)
+                labels.append(1)
+                filenames.append(path)
+
+            except Exception as e:
+
+                print(
+                    f"Warning: failed {path}: {e}"
+                )
+
+    return (
+        np.array(scores, dtype=np.float32),
+        np.array(labels, dtype=np.int32),
+        filenames,
+    )
 
 
 # ============================================================
-# EVALUATE USING THRESHOLD
+# THRESHOLD FROM NORMAL DISTRIBUTION
 # ============================================================
 
-def calculate_metrics(
+def percentile_threshold(
+    normal_errors,
+    percentile
+):
+
+    return float(
+        np.percentile(
+            normal_errors,
+            percentile
+        )
+    )
+
+
+# ============================================================
+# EVALUATE THRESHOLD
+# ============================================================
+
+def evaluate_threshold(
     scores,
     labels,
     threshold
 ):
 
-    predictions = [
-        1 if score > threshold else 0
-        for score in scores
-    ]
+    predictions = (
+        scores >= threshold
+    ).astype(int)
 
     accuracy = accuracy_score(
         labels,
@@ -381,163 +495,342 @@ def calculate_metrics(
         zero_division=0
     )
 
+    return {
+        "accuracy": float(accuracy),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+    }
+
+
+# ============================================================
+# FIND BEST NORMAL-DISTRIBUTION THRESHOLD
+# ============================================================
+
+def find_best_threshold(
+    normal_errors,
+    calibration_scores,
+    calibration_labels,
+):
+
+    candidates = []
+
+    # --------------------------------------------------------
+    # Percentile thresholds
+    # --------------------------------------------------------
+
+    for percentile in NORMAL_PERCENTILES:
+
+        threshold = percentile_threshold(
+            normal_errors,
+            percentile
+        )
+
+        candidates.append(
+            (
+                f"normal_p{percentile}",
+                threshold
+            )
+        )
+
+    # --------------------------------------------------------
+    # Also test thresholds from validation data.
+    # This allows the validation set to select a threshold
+    # when the percentile candidates are not enough.
+    # --------------------------------------------------------
+
+    minimum = float(np.min(calibration_scores))
+
+    maximum = float(np.max(calibration_scores))
+
+    if minimum < maximum:
+
+        validation_candidates = np.linspace(
+            minimum,
+            maximum,
+            200
+        )
+
+        for threshold in validation_candidates:
+
+            candidates.append(
+                (
+                    "validation",
+                    float(threshold)
+                )
+            )
+
+    # --------------------------------------------------------
+    # Evaluate candidates
+    # --------------------------------------------------------
+
+    best = None
+
+    for source, threshold in candidates:
+
+        metrics = evaluate_threshold(
+            calibration_scores,
+            calibration_labels,
+            threshold
+        )
+
+        # ----------------------------------------------------
+        # Defect recall is a hard requirement. Among thresholds that meet it,
+        # prefer precision, then F1, then the higher threshold.
+        if metrics["recall"] < MIN_DEFECT_RECALL:
+            continue
+
+        current_key = (
+            metrics["precision"],
+            metrics["f1"],
+            threshold,
+        )
+
+        if best is None:
+
+            best = {
+                "source": source,
+                "threshold": threshold,
+                "metrics": metrics,
+            }
+
+        else:
+
+            best_key = (
+                best["metrics"]["precision"],
+                best["metrics"]["f1"],
+                best["threshold"],
+            )
+
+            if current_key > best_key:
+
+                best = {
+                    "source": source,
+                    "threshold": threshold,
+                    "metrics": metrics,
+                }
+
+    if best is None:
+        raise RuntimeError(
+            "Unable to find a threshold meeting the required defect recall "
+            f"of {MIN_DEFECT_RECALL:.0%}"
+        )
+
+    return best
+
+
+# ============================================================
+# SPLIT TEST DATA
+# ============================================================
+
+def split_test_data(
+    scores,
+    labels,
+    filenames
+):
+
+    indices = np.arange(
+        len(scores)
+    )
+
+    rng = np.random.default_rng(
+        RANDOM_SEED
+    )
+
+    rng.shuffle(indices)
+
+    split_index = int(
+        len(indices) *
+        TEST_VALIDATION_RATIO
+    )
+
+    validation_indices = indices[
+        :split_index
+    ]
+
+    holdout_indices = indices[
+        split_index:
+    ]
+
     return (
-        accuracy,
-        precision,
-        recall,
-        f1
+        scores[validation_indices],
+        labels[validation_indices],
+        [filenames[i] for i in validation_indices],
+
+        scores[holdout_indices],
+        labels[holdout_indices],
+        [filenames[i] for i in holdout_indices],
     )
 
 
 # ============================================================
-# EVALUATE ONE CATEGORY
+# PROCESS ONE CATEGORY
 # ============================================================
 
-def evaluate_category(
-    category,
-    device
-):
+def evaluate_category(category):
 
     print()
     print("=" * 70)
-
-    print(
-        f"OPTIMIZING: {category.upper()}"
-    )
-
+    print(f"OPTIMIZING: {category.upper()}")
     print("=" * 70)
 
-    model_path = (
-        MODEL_DIR
-        / f"{category}_autoencoder.pth"
-    )
-
-    if not model_path.exists():
-
-        print(
-            f"MODEL NOT FOUND: {model_path}"
-        )
-
-        return None
-
     # --------------------------------------------------------
-    # LOAD MODEL
+    # MODEL
     # --------------------------------------------------------
 
-    model = ConvAutoencoder().to(
-        device
-    )
+    model = load_model(category)
 
-    model.load_state_dict(
-        torch.load(
-            model_path,
-            map_location=device
-        )
-    )
-
-    model.eval()
-
-    print(
-        "Model loaded successfully."
-    )
+    print("Model loaded successfully.")
 
     # --------------------------------------------------------
-    # COLLECT SCORES
+    # TRAINING GOOD
     # --------------------------------------------------------
 
-    samples = collect_test_scores(
+    normal_errors = collect_training_good_errors(
         model,
-        category,
-        device
+        category
     )
 
-    if len(samples) < 4:
+    if len(normal_errors) == 0:
 
-        print(
-            "Not enough test samples."
+        raise RuntimeError(
+            f"No training-good images found for {category}"
         )
 
-        return None
-
-    # --------------------------------------------------------
-    # SHUFFLE
-    # --------------------------------------------------------
-
-    rng = np.random.default_rng(
-        seed=42
-    )
-
-    rng.shuffle(samples)
-
-    scores = np.array(
-        [item[0] for item in samples]
-    )
-
-    labels = np.array(
-        [item[1] for item in samples]
-    )
-
-    # --------------------------------------------------------
-    # SPLIT TEST DATA
-    # --------------------------------------------------------
-
-    split_index = int(
-        len(samples)
-        * VALIDATION_RATIO
-    )
-
-    validation_scores = (
-        scores[:split_index]
-    )
-
-    validation_labels = (
-        labels[:split_index]
-    )
-
-    test_scores = (
-        scores[split_index:]
-    )
-
-    test_labels = (
-        labels[split_index:]
+    print(
+        f"Training good images : {len(normal_errors)}"
     )
 
     print(
-        f"Validation samples: "
-        f"{len(validation_scores)}"
+        f"Normal error min     : "
+        f"{normal_errors.min():.8f}"
     )
 
     print(
-        f"Final test samples: "
-        f"{len(test_scores)}"
+        f"Normal error max     : "
+        f"{normal_errors.max():.8f}"
+    )
+
+    print(
+        f"Normal error mean    : "
+        f"{normal_errors.mean():.8f}"
+    )
+
+    print(
+        f"Normal error median  : "
+        f"{np.median(normal_errors):.8f}"
+    )
+
+    # --------------------------------------------------------
+    # TEST DATA
+    # --------------------------------------------------------
+
+    scores, labels, filenames = collect_test_scores(
+        model,
+        category
+    )
+
+    if len(scores) == 0:
+
+        raise RuntimeError(
+            f"No test images found for {category}"
+        )
+
+    (
+        validation_scores,
+        validation_labels,
+        validation_files,
+
+        holdout_scores,
+        holdout_labels,
+        holdout_files,
+
+    ) = split_test_data(
+        scores,
+        labels,
+        filenames
+    )
+
+    print(
+        f"Calibration samples : "
+        f"{len(scores)}"
+    )
+
+    print(
+        f"Holdout samples    : "
+        f"{len(holdout_scores)}"
     )
 
     # --------------------------------------------------------
     # FIND BEST THRESHOLD
     # --------------------------------------------------------
 
-    threshold = find_best_threshold(
-        validation_scores,
-        validation_labels
+    best = find_best_threshold(
+        normal_errors,
+        scores,
+        labels,
+    )
+
+    threshold = best["threshold"]
+
+    print()
+    print(
+        f"Selected threshold  : "
+        f"{threshold:.8f}"
     )
 
     print(
-        f"Optimized threshold: "
-        f"{threshold:.6f}"
+        f"Threshold source    : "
+        f"{best['source']}"
+    )
+
+    print(
+        f"Calibration recall   : "
+        f"{best['metrics']['recall']:.4f}"
     )
 
     # --------------------------------------------------------
-    # FINAL TEST METRICS
+    # TRAINING GOOD FALSE POSITIVES
     # --------------------------------------------------------
 
-    (
-        accuracy,
-        precision,
-        recall,
-        f1
-    ) = calculate_metrics(
-        test_scores,
-        test_labels,
+    training_predictions = (
+        normal_errors >= threshold
+    )
+
+    training_false_positives = int(
+        np.sum(training_predictions)
+    )
+
+    print(
+        f"Training good above threshold : "
+        f"{training_false_positives}/"
+        f"{len(normal_errors)}"
+    )
+
+    # --------------------------------------------------------
+    # PERCENTILE INFORMATION
+    # --------------------------------------------------------
+
+    percentile_values = {}
+
+    for percentile in NORMAL_PERCENTILES:
+
+        value = percentile_threshold(
+            normal_errors,
+            percentile
+        )
+
+        percentile_values[
+            f"p{percentile}"
+        ] = float(value)
+
+    # --------------------------------------------------------
+    # FINAL HOLDOUT
+    # --------------------------------------------------------
+
+    holdout_metrics = evaluate_threshold(
+        holdout_scores,
+        holdout_labels,
         threshold
     )
 
@@ -546,29 +839,80 @@ def evaluate_category(
         "FINAL HELD-OUT TEST RESULTS"
     )
 
+    print("-" * 50)
+
     print(
-        f"Accuracy  : {accuracy:.4f}"
+        f"Accuracy  : "
+        f"{holdout_metrics['accuracy']:.4f}"
     )
 
     print(
-        f"Precision : {precision:.4f}"
+        f"Precision : "
+        f"{holdout_metrics['precision']:.4f}"
     )
 
     print(
-        f"Recall    : {recall:.4f}"
+        f"Recall    : "
+        f"{holdout_metrics['recall']:.4f}"
     )
 
     print(
-        f"F1 Score  : {f1:.4f}"
+        f"F1 Score  : "
+        f"{holdout_metrics['f1']:.4f}"
     )
+
+    print("-" * 50)
+
+    # --------------------------------------------------------
+    # RETURN RESULTS
+    # --------------------------------------------------------
 
     return {
-        "category": category,
-        "threshold": threshold,
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+        "threshold": float(threshold),
+
+        "threshold_source": best["source"],
+
+        "validation_f1":
+            float(best["metrics"]["f1"]),
+
+        "validation_accuracy":
+            float(best["metrics"]["accuracy"]),
+
+        "validation_precision":
+            float(best["metrics"]["precision"]),
+
+        "validation_recall":
+            float(best["metrics"]["recall"]),
+
+        "holdout_f1":
+            float(holdout_metrics["f1"]),
+
+        "holdout_accuracy":
+            float(holdout_metrics["accuracy"]),
+
+        "holdout_precision":
+            float(holdout_metrics["precision"]),
+
+        "holdout_recall":
+            float(holdout_metrics["recall"]),
+
+        "training_good_images":
+            int(len(normal_errors)),
+
+        "training_good_max_error":
+            float(normal_errors.max()),
+
+        "training_good_mean_error":
+            float(normal_errors.mean()),
+
+        "training_good_median_error":
+            float(np.median(normal_errors)),
+
+        "training_good_above_threshold":
+            training_false_positives,
+
+        "normal_error_percentiles":
+            percentile_values,
     }
 
 
@@ -579,28 +923,21 @@ def evaluate_category(
 def main():
 
     print("=" * 70)
-
-    print(
-        "VISIONINSPECT AI"
-    )
-
-    print(
-        "OPTIMIZED AUTOENCODER THRESHOLD EVALUATION"
-    )
-
+    print("VISIONINSPECT AI")
+    print("AUTOENCODER THRESHOLD OPTIMIZATION")
     print("=" * 70)
 
-    device = torch.device(
-        "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
+    print(
+        f"Device: {DEVICE}"
     )
 
     print(
-        f"Device: {device}"
+        f"Image size: {IMAGE_SIZE}"
     )
 
-    results = []
+    all_results = {}
+
+    successful = 0
 
     # --------------------------------------------------------
     # ALL 15 CATEGORIES
@@ -608,57 +945,103 @@ def main():
 
     for category in CATEGORIES:
 
-        result = evaluate_category(
-            category,
-            device
-        )
+        try:
 
-        if result is not None:
-
-            results.append(
-                result
+            result = evaluate_category(
+                category
             )
 
-    # --------------------------------------------------------
-    # FINAL TABLE
-    # --------------------------------------------------------
+            all_results[category] = result
+
+            successful += 1
+
+        except Exception as e:
+
+            print()
+            print(
+                f"ERROR processing "
+                f"{category}: {e}"
+            )
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
 
     print()
-    print("=" * 90)
-
-    print(
-        "OPTIMIZED AUTOENCODER RESULTS"
-    )
-
-    print("=" * 90)
+    print("=" * 100)
+    print("AUTOENCODER THRESHOLD RESULTS")
+    print("=" * 100)
 
     print(
         f"{'Category':<15}"
-        f"{'Accuracy':<12}"
-        f"{'Precision':<12}"
-        f"{'Recall':<12}"
-        f"{'F1':<12}"
+        f"{'Threshold':<14}"
+        f"{'Val F1':<10}"
+        f"{'Holdout F1':<12}"
+        f"{'Accuracy':<10}"
+        f"{'FP Train':<10}"
     )
 
-    print("-" * 90)
+    print("-" * 100)
 
-    for result in results:
+    for category in CATEGORIES:
+
+        if category not in all_results:
+
+            continue
+
+        result = all_results[
+            category
+        ]
 
         print(
-            f"{result['category']:<15}"
-            f"{result['accuracy']:<12.4f}"
-            f"{result['precision']:<12.4f}"
-            f"{result['recall']:<12.4f}"
-            f"{result['f1']:<12.4f}"
+            f"{category:<15}"
+            f"{result['threshold']:<14.8f}"
+            f"{result['validation_f1']:<10.4f}"
+            f"{result['holdout_f1']:<12.4f}"
+            f"{result['holdout_accuracy']:<10.4f}"
+            f"{result['training_good_above_threshold']:<10}"
         )
 
-    print("=" * 90)
+    print("=" * 100)
+
+    # ========================================================
+    # SAVE JSON
+    # ========================================================
+
+    os.makedirs(
+        os.path.dirname(THRESHOLD_FILE),
+        exist_ok=True
+    )
+
+    with open(
+        THRESHOLD_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            all_results,
+            f,
+            indent=4
+        )
+
+    print()
+    print("Saved to:")
+    print(THRESHOLD_FILE)
+
+    print()
+    print(
+        f"Completed: "
+        f"{successful}/{len(CATEGORIES)}"
+    )
+
+    print("=" * 70)
 
 
 # ============================================================
-# START
+# ENTRY POINT
 # ============================================================
 
 if __name__ == "__main__":
 
-    main() 
+    main()

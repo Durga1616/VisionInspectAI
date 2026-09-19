@@ -28,6 +28,7 @@ const formatCategory = (value = "") =>
 function Inspection() {
   const navigate = useNavigate();
   const imageRef = useRef(null);
+  const previewFrameRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const [image, setImage] = useState(null);
@@ -37,6 +38,42 @@ function Inspection() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageLayout, setImageLayout] = useState(null);
+
+  const measureImageLayout = () => {
+    const loadedImage = imageRef.current;
+    const frame = previewFrameRef.current;
+    if (!loadedImage || !frame || !loadedImage.complete) return;
+
+    const imageRect = loadedImage.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+
+    setImageLayout({
+      naturalWidth: loadedImage.naturalWidth,
+      naturalHeight: loadedImage.naturalHeight,
+      renderedWidth: imageRect.width,
+      renderedHeight: imageRect.height,
+      frameWidth: frameRect.width,
+      frameHeight: frameRect.height,
+      imageLeft: imageRect.left - frameRect.left,
+      imageTop: imageRect.top - frameRect.top,
+    });
+  };
+
+  useEffect(() => {
+    if (!imageLoaded) return undefined;
+
+    const resizeObserver = new ResizeObserver(measureImageLayout);
+    if (imageRef.current) resizeObserver.observe(imageRef.current);
+    if (previewFrameRef.current) resizeObserver.observe(previewFrameRef.current);
+    window.addEventListener("resize", measureImageLayout);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", measureImageLayout);
+    };
+  }, [imageLoaded]);
 
   useEffect(() => {
     return () => {
@@ -69,6 +106,8 @@ function Inspection() {
 
     setImage(file);
     setPreview(URL.createObjectURL(file));
+    setImageLoaded(false);
+    setImageLayout(null);
   };
 
   const handleFileInput = (event) => {
@@ -86,6 +125,8 @@ function Inspection() {
     if (preview) URL.revokeObjectURL(preview);
     setImage(null);
     setPreview(null);
+    setImageLoaded(false);
+    setImageLayout(null);
     setResult(null);
     setError("");
   };
@@ -570,44 +611,85 @@ function Inspection() {
                     />
                   </div>
 
-                  <div className="vi-preview-frame">
-                    <img
-                      ref={imageRef}
-                      src={preview}
-                      alt="Selected product"
-                    />
+                  <div
+                    ref={previewFrameRef}
+                    className="vi-preview-frame"
+                  >
+                    <div className="vi-image-stage">
+                      <img
+                        ref={imageRef}
+                        src={preview}
+                        alt="Selected product"
+                        onLoad={() => {
+                          setImageLoaded(true);
+                          requestAnimationFrame(measureImageLayout);
+                        }}
+                      />
 
-                    {detections.map((detection, index) => {
+                    {imageLoaded && imageLayout && detections.map((detection, index) => {
                       const bbox = detection?.bbox;
-                      if (!bbox || !imageRef.current) return null;
+                      if (
+                        !bbox ||
+                        !imageLayout
+                      ) {
+                        return null;
+                      }
 
-                      const width = imageRef.current.naturalWidth;
-                      const height = imageRef.current.naturalHeight;
+                      const {
+                        naturalWidth: width,
+                        naturalHeight: height,
+                      } = imageLayout;
 
-                      if (!width || !height) return null;
+                      if (
+                        !width ||
+                        !height
+                      ) {
+                        return null;
+                      }
+
+                      const x1 = Math.max(
+                        0,
+                        Math.min(width, Number(bbox.x1) || 0)
+                      );
+                      const y1 = Math.max(
+                        0,
+                        Math.min(height, Number(bbox.y1) || 0)
+                      );
+                      const x2 = Math.max(
+                        x1,
+                        Math.min(width, Number(bbox.x2) || 0)
+                      );
+                      const y2 = Math.max(
+                        y1,
+                        Math.min(height, Number(bbox.y2) || 0)
+                      );
 
                       return (
                         <div
                           key={index}
                           className="vi-bbox"
                           style={{
-                            left: `${(bbox.x1 / width) * 100}%`,
-                            top: `${(bbox.y1 / height) * 100}%`,
-                            width: `${((bbox.x2 - bbox.x1) / width) * 100}%`,
-                            height: `${((bbox.y2 - bbox.y1) / height) * 100}%`,
+                            left: `${((x1 / width) * 100).toFixed(4)}%`,
+                            top: `${((y1 / height) * 100).toFixed(4)}%`,
+                            width: `${(((x2 - x1) / width) * 100).toFixed(4)}%`,
+                            height: `${(((y2 - y1) / height) * 100).toFixed(4)}%`,
                           }}
                         >
                           <span>
-                            {detection.defect_type ||
+                            {detection.class === "anomaly_region"
+                              ? "ANOMALY REGION - MANUAL REVIEW"
+                              : detection.defect_type ||
                               classification?.defect_type ||
                               "DEFECT"}
-                            {detection.confidence !== undefined
+                            {detection.class !== "anomaly_region" &&
+                            detection.confidence !== undefined
                               ? ` ${(detection.confidence * 100).toFixed(1)}%`
                               : ""}
                           </span>
                         </div>
                       );
                     })}
+                    </div>
 
                     <button
                       type="button"
@@ -757,8 +839,16 @@ function Inspection() {
 
                 <div className="vi-result-metrics">
                   <div>
-                    <span>Defects</span>
-                    <strong>{detections.length}</strong>
+                    <span>
+                      {isDefect && detections.length === 0
+                        ? "Anomalies"
+                        : "Defects"}
+                    </span>
+                    <strong>
+                      {isDefect && detections.length === 0
+                        ? "1"
+                        : detections.length}
+                    </strong>
                   </div>
                   <div>
                     <span>Category</span>
@@ -843,7 +933,9 @@ function Inspection() {
                 <small>
                   {detections.length
                     ? "Bounding boxes generated"
-                    : "No defect locations detected"}
+                    : isDefect
+                      ? "Anomaly detected; localization needs review"
+                      : "No defect locations detected"}
                 </small>
               </div>
 
