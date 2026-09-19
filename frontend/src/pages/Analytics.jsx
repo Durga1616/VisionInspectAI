@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
+import Sidebar from "../components/Sidebar";
 
 const CATEGORIES = [
   "bottle", "cable", "capsule", "carpet", "grid", "hazelnut",
@@ -26,6 +27,8 @@ function Analytics() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const loadAnalytics = useCallback(async (silent = false) => {
     try {
@@ -49,7 +52,11 @@ function Analytics() {
   }, [loadAnalytics]);
 
   const analytics = useMemo(() => {
-    const completed = inspections.filter(
+    const filteredInspections = inspections.filter((item) => {
+      const date = item.created_at ? new Date(item.created_at).toISOString().slice(0, 10) : "";
+      return (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
+    });
+    const completed = filteredInspections.filter(
       (x) => String(x.status || "").toLowerCase() === "completed"
     );
     const results = completed.map((item) => ({ item, result: parseResult(item) }));
@@ -59,10 +66,10 @@ function Analytics() {
     const good = results.filter(
       ({ result }) => String(result?.status || "").toUpperCase() === "GOOD"
     );
-    const pending = inspections.filter((x) =>
+    const pending = filteredInspections.filter((x) =>
       ["processing", "pending"].includes(String(x.status || "").toLowerCase())
     );
-    const failed = inspections.filter(
+    const failed = filteredInspections.filter(
       (x) => String(x.status || "").toLowerCase() === "failed"
     );
 
@@ -79,7 +86,7 @@ function Analytics() {
     CATEGORIES.forEach((c) => {
       categoryMap[c] = { total: 0, good: 0, defect: 0 };
     });
-    inspections.forEach((item) => {
+    filteredInspections.forEach((item) => {
       const category = item.category || parseResult(item)?.category || "unknown";
       if (!categoryMap[category]) categoryMap[category] = { total: 0, good: 0, defect: 0 };
       categoryMap[category].total += 1;
@@ -126,12 +133,12 @@ function Analytics() {
       sum + (Array.isArray(result?.defects) ? result.defects.length : 1), 0);
 
     return {
-      total: inspections.length, completed: completed.length, good: good.length,
+      total: filteredInspections.length, completed: completed.length, good: good.length,
       defective: defective.length, pending: pending.length, failed: failed.length,
       averageQuality, defectRate, passRate, categories, sortedDefectTypes, trend,
       totalDefectDetections,
     };
-  }, [inspections]);
+  }, [inspections, fromDate, toDate]);
 
   const maxCategory = Math.max(...analytics.categories.map(([, v]) => v.total), 1);
   const maxDefect = Math.max(...analytics.sortedDefectTypes.map(([, v]) => v), 1);
@@ -141,14 +148,6 @@ function Analytics() {
     analytics.averageQuality >= 80 ? "Excellent" :
     analytics.averageQuality >= 60 ? "Good" :
     analytics.averageQuality >= 40 ? "Fair" : "Poor";
-
-  const navItems = [
-    ["⌂", "Dashboard", "/dashboard"],
-    ["▣", "New Inspection", "/inspection"],
-    ["☷", "Inspection History", "/history"],
-    ["⌁", "Analytics", "/analytics"],
-    ["▤", "Reports", "/reports"],
-  ];
 
   return (
     <div className="analytics-v3">
@@ -165,7 +164,7 @@ function Analytics() {
         .analytics-v3 .nav button:hover,.analytics-v3 .logout:hover{background:#ffffff0d;color:#fff;transform:translateX(2px)}
         .analytics-v3 .nav button.active{background:linear-gradient(90deg,#2563eb,#1d4ed8);color:#fff;box-shadow:0 8px 20px #2563eb35}
         .analytics-v3 .nav-icon{width:20px;text-align:center;font-size:17px}.analytics-v3 .bottom{margin-top:auto}.analytics-v3 .logout{color:#9eacc3}
-        .analytics-v3 .main{margin-left:248px;width:calc(100% - 248px);padding:28px 34px 42px}
+        .analytics-v3 .main{margin-left:0;width:auto;flex:1;min-width:0;padding:28px 34px 42px}
         .analytics-v3 .top{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:26px}
         .analytics-v3 .crumb{font-size:11px;color:#7890b2;font-weight:650;margin-bottom:7px}.analytics-v3 h1{font-size:29px;line-height:1.1;margin:0;letter-spacing:-.8px}.analytics-v3 .sub{margin:8px 0 0;color:#718096;font-size:13px}
         .analytics-v3 .actions{display:flex;gap:10px}.analytics-v3 .btn{border:1px solid #d9e2ee;background:#fff;color:#334155;border-radius:10px;padding:10px 14px;font-weight:750;cursor:pointer}.analytics-v3 .btn.primary{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 7px 18px #2563eb2e}.analytics-v3 .btn:disabled{opacity:.6;cursor:not-allowed}
@@ -186,25 +185,7 @@ function Analytics() {
         @media(max-width:480px){.analytics-v3 .grid4{grid-template-columns:1fr}.analytics-v3 h1{font-size:24px}}
       `}</style>
 
-      <aside className="side">
-        <div className="brand">
-          <div className="logo">V</div>
-          <div><b>Vision<span>Inspect AI</span></b><small>QUALITY INTELLIGENCE</small></div>
-        </div>
-        <div className="section">WORKSPACE</div>
-        <div className="nav">
-          {navItems.map(([icon, label, path]) => (
-            <button key={path} className={path === "/analytics" ? "active" : ""} onClick={() => navigate(path)}>
-              <span className="nav-icon">{icon}</span>{label}
-            </button>
-          ))}
-        </div>
-        <div className="bottom">
-          <button className="logout" onClick={() => {
-            localStorage.removeItem("token"); localStorage.removeItem("role"); localStorage.removeItem("refresh_token"); navigate("/login");
-          }}>⇥ <span>Logout</span></button>
-        </div>
-      </aside>
+      <Sidebar />
 
       <main className="main">
         <header className="top">
@@ -214,6 +195,8 @@ function Analytics() {
             <p className="sub">Monitor inspection performance, quality levels and defect patterns.</p>
           </div>
           <div className="actions">
+            <label className="analytics-date-filter">From <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label>
+            <label className="analytics-date-filter">To <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label>
             <button className="btn" onClick={() => navigate("/history")}>View History</button>
             <button className="btn primary" onClick={() => navigate("/inspection")}>+ New Inspection</button>
             <button className="btn" disabled={refreshing} onClick={() => loadAnalytics(true)}>

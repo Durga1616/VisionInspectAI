@@ -10,7 +10,10 @@ from PIL import Image
 from torchvision import models, transforms
 from ultralytics import YOLO
 
-from inference.quality_assessment import assess_quality
+from inference.quality_assessment import (
+    analyze_image_quality,
+    assess_quality,
+)
 from preprocessing.preprocess import (
     preprocess_image as preprocess_training_image,
 )
@@ -981,6 +984,8 @@ def inspect_image(
     )
 
 
+    image_quality = analyze_image_quality(image_path)
+
     # ========================================================
     # STEP 1: LOAD THRESHOLD
     # ========================================================
@@ -1066,6 +1071,7 @@ def inspect_image(
                 threshold,
                 8
             ),
+            "image_quality": image_quality,
             "classification": {
                 "defect_type": "unknown",
                 "confidence": 0,
@@ -1137,6 +1143,7 @@ def inspect_image(
                 threshold,
                 8
             ),
+            "image_quality": image_quality,
             "classification": {
                 "defect_type": "unknown",
                 "confidence": 0,
@@ -1183,6 +1190,7 @@ def inspect_image(
                 threshold,
                 8
             ),
+            "image_quality": image_quality,
             "classification": {
                 "defect_type": "unknown",
                 "confidence": 0,
@@ -1448,6 +1456,9 @@ def inspect_image(
                 threshold,
                 8
             ),
+
+        "image_quality":
+            image_quality,
 
         "classification": {
 

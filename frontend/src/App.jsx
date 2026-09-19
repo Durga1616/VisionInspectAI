@@ -11,6 +11,9 @@ import Dashboard from "./pages/Dashboard";
 import Inspection from "./pages/Inspection";
 import Analytics from "./pages/Analytics";
 import InspectionHistory from "./pages/InspectionHistory";
+import CameraBatch from "./pages/CameraBatch";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -43,7 +46,14 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/analytics" element={<Analytics />} />
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute>
+              <Analytics />
+            </ProtectedRoute>
+          }
+        />
         <Route
   path="/history"
   element={
@@ -62,6 +72,16 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/camera-batch"
+          element={
+            <ProtectedRoute allowedRoles={["quality_engineer"]}>
+              <CameraBatch />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
       </Routes>
 

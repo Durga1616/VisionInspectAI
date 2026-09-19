@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
+import Sidebar from "../components/Sidebar";
 
 function Dashboard() {
   const navigate = useNavigate();
-
-  const role = localStorage.getItem("role");
-  const isEngineer = role === "quality_engineer";
+  const isEngineer = localStorage.getItem("role") === "quality_engineer";
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const logout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refresh_token");
+    localStorage.removeItem("role");
+    navigate("/login", { replace: true });
+  };
 
   const [inspections, setInspections] = useState([]);
   const [loadingInspections, setLoadingInspections] = useState(true);
@@ -33,122 +39,20 @@ function Dashboard() {
   ).length;
 
   const pendingInspections = inspections.filter(
-    (inspection) => inspection.status === "pending"
+    (inspection) => String(inspection.status || "").toLowerCase() !== "completed"
   ).length;
 
   const defectInspections = inspections.filter(
     (inspection) =>
-      inspection.result?.prediction === "defect" ||
-      inspection.result?.status === "defect"
+      String(inspection.result?.prediction || inspection.result?.status || "").toUpperCase() === "DEFECT"
   ).length;
-
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    navigate("/login");
-  };
 
   return (
     <div className="dashboard-layout">
 
       {/* ================= SIDEBAR ================= */}
 
-      <aside className="dashboard-sidebar">
-
-        <div className="sidebar-brand">
-
-          <div className="sidebar-logo">
-            V
-          </div>
-
-          <div>
-            <div className="sidebar-brand-name">
-              Vision<span>Inspect AI</span>
-            </div>
-
-            <div className="sidebar-brand-subtitle">
-              QUALITY INTELLIGENCE
-            </div>
-          </div>
-
-        </div>
-
-
-        <nav className="sidebar-navigation">
-
-          <div className="sidebar-section-title">
-            WORKSPACE
-          </div>
-
-          <button className="sidebar-nav active">
-            <span className="nav-icon">⌂</span>
-            Dashboard
-          </button>
-
-          {isEngineer && (
-            <button
-              className="sidebar-nav"
-              onClick={() => navigate("/inspection")}
-            >
-              <span className="nav-icon">▣</span>
-              New Inspection
-            </button>
-          )}
-
-          <button
-  className="sidebar-nav"
-  onClick={() => navigate("/history")}
->
-  <span className="nav-icon">☷</span>
-  Inspection History
-</button>
-
-          <button
-  className="sidebar-nav"
-  onClick={() => navigate("/analytics")}
->
-  <span className="nav-icon">⌁</span>
-  Analytics
-</button>
-
-          <button className="sidebar-nav">
-            <span className="nav-icon">▤</span>
-            Reports
-          </button>
-
-          <button className="sidebar-nav">
-            <span className="nav-icon">⚙</span>
-            Settings
-          </button>
-
-        </nav>
-
-
-        {/* SIDEBAR INDUSTRIAL DECORATION */}
-
-        <div className="industrial-decoration">
-
-          <div className="factory-line line-one"></div>
-          <div className="factory-line line-two"></div>
-
-          <div className="factory-machine">
-            <div className="machine-arm"></div>
-            <div className="machine-joint"></div>
-            <div className="machine-base"></div>
-          </div>
-
-        </div>
-
-
-        <button
-          className="sidebar-logout"
-          onClick={logout}
-        >
-          <span>⇥</span>
-          Logout
-        </button>
-
-      </aside>
+      <Sidebar />
 
 
       {/* ================= MAIN ================= */}
@@ -172,6 +76,13 @@ function Dashboard() {
 
           <div className="dashboard-user">
 
+            <button
+              className="dashboard-profile-trigger"
+              type="button"
+              onClick={() => setProfileMenuOpen((open) => !open)}
+              aria-expanded={profileMenuOpen}
+              aria-label="Open account menu"
+            >
             <div className="user-avatar">
               {isEngineer ? "QE" : "FS"}
             </div>
@@ -195,6 +106,12 @@ function Dashboard() {
             <span className="user-chevron">
              ⌄
             </span>
+            </button>
+            {profileMenuOpen && (
+              <button className="dashboard-user-logout" type="button" onClick={logout}>
+                Logout
+              </button>
+            )}
 
           </div>
 
@@ -301,7 +218,7 @@ function Dashboard() {
 
             <div className="metric-content">
 
-              <span>Pending</span>
+              <span>In Progress</span>
 
               <strong>
                 {pendingInspections}
@@ -315,8 +232,17 @@ function Dashboard() {
                         100
                     )
                   : 0}
-                % of total
+                % of total · still processing
               </small>
+              {pendingInspections > 0 && (
+                <button
+                  className="metric-link orange-text"
+                  type="button"
+                  onClick={() => navigate("/history?status=PROCESSING")}
+                >
+                  View in history
+                </button>
+              )}
 
             </div>
 

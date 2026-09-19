@@ -27,8 +27,9 @@ def test_retrained_yolo_models_are_used_for_carpet_and_wood():
 @pytest.fixture
 def image_path(tmp_path):
     image = tmp_path / "sample.png"
-    image.write_bytes(b"not-a-real-image")
-    return str(image)
+    image = str(image)
+    assert cv2.imwrite(image, np.zeros((32, 32, 3), dtype=np.uint8))
+    return image
 
 
 def test_inspect_image_skips_yolo_when_autoencoder_marks_good(monkeypatch, image_path):

@@ -14,9 +14,11 @@
 10. Image is stored.
 11. Inspection record is created in MongoDB.
 12. Inspection status is set to pending.
-13. MVTec AD provides the dataset foundation.
-14. Image preprocessing prepares images for future ML analysis.
-15. Future milestones will perform defect prediction and severity analysis.
+13. A camera capture can be submitted through the camera integration simulation.
+14. Multiple images can be submitted through batch image processing.
+15. Each camera or batch image uses the same autoencoder → YOLO inspection pipeline.
+16. MVTec AD provides the dataset foundation.
+17. Image preprocessing prepares images for ML analysis.
 
 ## Role Workflow
 

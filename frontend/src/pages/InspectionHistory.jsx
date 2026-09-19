@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
+import Sidebar from "../components/Sidebar";
 
 const CATEGORIES = [
   "bottle",
@@ -94,6 +95,7 @@ function formatDate(value) {
 
 function InspectionHistory() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const role = localStorage.getItem("role");
   const isEngineer = role === "quality_engineer";
@@ -105,7 +107,9 @@ function InspectionHistory() {
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
-  const [resultFilter, setResultFilter] = useState("all");
+  const [resultFilter, setResultFilter] = useState(
+    searchParams.get("status") || "all"
+  );
   const [sortOrder, setSortOrder] = useState("newest");
   const [page, setPage] = useState(1);
 
@@ -235,96 +239,26 @@ function InspectionHistory() {
     setPage(1);
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("role");
-    navigate("/login");
+  const retryInspection = async (inspection) => {
+    try {
+      const category = getCategory(inspection);
+      const query = category !== "unknown"
+        ? `?category=${encodeURIComponent(category)}`
+        : "";
+      await api.post(
+        `/inspections/${inspection.id}/retry${query}`
+      );
+      await loadInspections(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Unable to retry the interrupted inspection.");
+    }
   };
 
   return (
     <div className="dashboard-layout history-v3">
 
       {/* SIDEBAR */}
-      <aside className="dashboard-sidebar">
-        <div className="sidebar-brand">
-          <div className="sidebar-logo">V</div>
-
-          <div>
-            <div className="sidebar-brand-name">
-              Vision<span>Inspect AI</span>
-            </div>
-            <div className="sidebar-brand-subtitle">
-              QUALITY INTELLIGENCE
-            </div>
-          </div>
-        </div>
-
-        <nav className="sidebar-navigation">
-          <div className="sidebar-section-title">
-            WORKSPACE
-          </div>
-
-          <button
-            className="sidebar-nav"
-            onClick={() => navigate("/dashboard")}
-          >
-            <span className="nav-icon">⌂</span>
-            Dashboard
-          </button>
-
-          {isEngineer && (
-            <button
-              className="sidebar-nav"
-              onClick={() => navigate("/inspection")}
-            >
-              <span className="nav-icon">▣</span>
-              New Inspection
-            </button>
-          )}
-
-          <button className="sidebar-nav active">
-            <span className="nav-icon">☷</span>
-            Inspection History
-          </button>
-
-          <button
-            className="sidebar-nav"
-            onClick={() => navigate("/analytics")}
-          >
-            <span className="nav-icon">⌁</span>
-            Analytics
-          </button>
-
-          <button className="sidebar-nav">
-            <span className="nav-icon">▤</span>
-            Reports
-          </button>
-
-          <button className="sidebar-nav">
-            <span className="nav-icon">⚙</span>
-            Settings
-          </button>
-        </nav>
-
-        <div className="dashboard-sidebar-spacer" />
-
-        <div className="sidebar-ai-status">
-          <span className="ai-status-dot" />
-          <div>
-            <strong>AI Inspection Engine</strong>
-            <span>System ready</span>
-          </div>
-        </div>
-
-        <button
-          className="sidebar-logout"
-          onClick={logout}
-        >
-          <span>⇥</span>
-          Logout
-        </button>
-      </aside>
+      <Sidebar />
 
       {/* MAIN */}
       <main className="dashboard-main history-main-v3">
@@ -617,10 +551,8 @@ function InspectionHistory() {
                               ? "Completed"
                               : status === "failed"
                               ? "Failed"
-                              : status === "processing"
-                              ? "Processing"
-                              : status === "pending"
-                              ? "Pending"
+                              : status === "pending" || status === "processing"
+                              ? "In Progress"
                               : status}
                           </span>
                         </td>
@@ -654,7 +586,16 @@ function InspectionHistory() {
                         </td>
 
                         <td className="history-date-v3">
-                          {formatDate(inspection.created_at)}
+                          <div>{formatDate(inspection.created_at)}</div>
+                          {(status === "pending" || status === "processing") && (
+                            <button
+                              type="button"
+                              className="history-retry-button"
+                              onClick={() => retryInspection(inspection)}
+                            >
+                              Retry inspection
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

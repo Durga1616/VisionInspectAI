@@ -143,6 +143,25 @@ def get_my_profile(
     }
 
 
+@router.post("/change-password")
+def change_password(
+    current_password: str,
+    new_password: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+
+    user = db.query(User).filter(User.id == int(current_user["user_id"])).first()
+    if not user or not verify_password(current_password, user.password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    user.password = hash_password(new_password)
+    db.commit()
+    return {"message": "Password updated successfully"}
+
+
 @router.get("/quality-engineer")
 def quality_engineer_area(
     current_user: dict = Depends(
