@@ -1,0 +1,8 @@
+Actual \ Predicted,broken_teeth,combined,fabric_border,fabric_interior,rough,split_teeth,squeezed_teeth
+broken_teeth,0,1,0,1,1,0,1
+combined,1,1,0,1,0,0,0
+fabric_border,0,1,0,3,0,0,0
+fabric_interior,1,1,0,0,1,0,0
+rough,2,2,0,0,0,0,0
+split_teeth,0,2,0,1,1,0,0
+squeezed_teeth,0,2,0,1,0,0,0

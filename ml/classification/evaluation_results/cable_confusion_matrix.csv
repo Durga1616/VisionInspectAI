@@ -1,0 +1,9 @@
+Actual \ Predicted,bent_wire,cable_swap,combined,cut_inner_insulation,cut_outer_insulation,missing_cable,missing_wire,poke_insulation
+bent_wire,2,0,1,0,0,0,0,0
+cable_swap,0,2,1,0,0,0,0,0
+combined,0,1,1,0,0,1,0,0
+cut_inner_insulation,3,0,0,0,0,0,0,0
+cut_outer_insulation,1,0,0,0,1,0,0,0
+missing_cable,0,0,0,0,0,2,1,0
+missing_wire,1,1,0,0,0,0,0,0
+poke_insulation,2,0,0,0,0,0,0,0

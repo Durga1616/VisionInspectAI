@@ -1,0 +1,99 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+
+.venv/
+venv/
+env/
+backend/.venv/
+ml/.venv/
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+**/.env
+
+# Keep example environment files
+!.env.example
+!**/.env.example
+
+# =========================
+# Frontend
+# =========================
+node_modules/
+**/node_modules/
+frontend/dist/
+
+# =========================
+# MVTec / ML Datasets
+# =========================
+ml/dataset/
+ml/**/dataset/
+**/dataset/
+
+# =========================
+# Generated ML Outputs
+# =========================
+ml/runs/
+runs/
+
+# Keep YOLO trained models
+!ml/yolo/runs/
+!ml/yolo/runs/**/
+!ml/yolo/runs/**/weights/
+!ml/yolo/runs/**/weights/best.pt
+
+# =========================
+# YOLO Generated Comparison Outputs
+# =========================
+ml/yolo/comparison_results/
+
+# =========================
+# Uploaded Images
+# =========================
+backend/uploads/
+uploads/
+**/uploads/
+
+# =========================
+# Test / Cache
+# =========================
+.pytest_cache/
+**/.pytest_cache/
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Temporary / Generated Files
+# =========================
+project_structure.txt
+ml_structure.txt
+
+# =========================
+# Python temporary files
+# =========================
+*.tmp
+*.temp
+
+# Large generated ML outputs
+ml/yolo/runs/
+ml/runs/
+runs/
+
+# ML datasets / generated comparison outputs
+ml/yolo/dataset/
+ml/yolo/all_categories/
+ml/yolo/comparison_results/

@@ -1,0 +1,5 @@
+Actual \ Predicted,bent,color,flip,scratch
+bent,3,1,0,1
+color,1,1,0,2
+flip,0,0,4,0
+scratch,2,2,0,0

@@ -1,0 +1,6 @@
+Actual \ Predicted,color,cut,fold,glue,poke
+color,2,0,0,2,0
+cut,0,0,0,4,0
+fold,1,0,0,1,2
+glue,0,0,0,4,0
+poke,0,1,0,1,2
