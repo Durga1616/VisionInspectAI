@@ -12,7 +12,8 @@ import Dashboard from "./pages/Dashboard";
 import Inspection from "./pages/Inspection";
 import Analytics from "./pages/Analytics";
 import InspectionHistory from "./pages/InspectionHistory";
-import CameraBatch from "./pages/CameraBatch";
+import Camera from "./pages/Camera";
+import BatchProcessing from "./pages/BatchProcessing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
@@ -78,12 +79,24 @@ function App() {
           }
         />
         <Route
-          path="/camera-batch"
+          path="/camera"
           element={
             <ProtectedRoute allowedRoles={["quality_engineer"]}>
-              <CameraBatch />
+              <Camera />
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="/batch-processing"
+          element={
+            <ProtectedRoute allowedRoles={["quality_engineer"]}>
+              <BatchProcessing />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/camera-batch"
+          element={<Navigate to="/camera" replace />}
         />
         <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

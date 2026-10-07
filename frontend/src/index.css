@@ -4620,6 +4620,13 @@ img {
   object-fit: contain;
 }
 
+.camera-preview img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
 .camera-placeholder {
   color: #94a3b8;
 }

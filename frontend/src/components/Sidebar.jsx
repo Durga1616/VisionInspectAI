@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 const NAV_ITEMS = [
   ["⌂", "Dashboard", "/dashboard"],
   ["▣", "New Inspection", "/inspection", "quality_engineer"],
-  ["◉", "Camera & Batch", "/camera-batch", "quality_engineer"],
+  ["◉", "Camera", "/camera", "quality_engineer"],
+  ["▦", "Batch Processing", "/batch-processing", "quality_engineer"],
   ["☷", "Inspection History", "/history"],
   ["⌁", "Analytics", "/analytics"],
   ["▤", "Reports", "/reports"],
