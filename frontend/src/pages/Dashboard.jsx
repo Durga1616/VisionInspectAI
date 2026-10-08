@@ -153,7 +153,7 @@ function Dashboard() {
           {/* SUPERVISOR STAT CARDS */}
           <section className="dashboard-stats">
 
-            <div className="metric-card">
+            <div className="metric-card metric-card-blue">
               <div className="metric-icon blue">▤</div>
 
               <div className="metric-content">
@@ -165,7 +165,7 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="metric-card">
+            <div className="metric-card metric-card-green">
               <div className="metric-icon green">✓</div>
 
               <div className="metric-content">
@@ -177,7 +177,7 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="metric-card">
+            <div className="metric-card metric-card-red">
               <div className="metric-icon red">!</div>
 
               <div className="metric-content">
@@ -189,7 +189,7 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="metric-card">
+            <div className="metric-card metric-card-orange">
               <div className="metric-icon orange">◷</div>
 
               <div className="metric-content">
@@ -479,7 +479,7 @@ function Dashboard() {
 
         <section className="dashboard-stats">
 
-          <div className="metric-card">
+          <div className="metric-card metric-card-blue">
 
             <div className="metric-icon blue">
               ▤
@@ -501,7 +501,7 @@ function Dashboard() {
 
           </div>
 
-          <div className="metric-card">
+          <div className="metric-card metric-card-green">
 
             <div className="metric-icon green">
               ✓
@@ -530,7 +530,7 @@ function Dashboard() {
 
           </div>
 
-          <div className="metric-card">
+          <div className="metric-card metric-card-orange">
 
             <div className="metric-icon orange">
               ◷
@@ -559,7 +559,7 @@ function Dashboard() {
 
           </div>
 
-          <div className="metric-card">
+          <div className="metric-card metric-card-red">
 
             <div className="metric-icon red">
               !
