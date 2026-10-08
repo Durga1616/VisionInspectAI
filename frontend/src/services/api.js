@@ -73,11 +73,8 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const response = await axios.post(
-        `${
-          import.meta.env.VITE_API_URL ||
-          "http://127.0.0.1:8001"
-        }/auth/refresh`,
+      const response = await api.post(
+        "/auth/refresh",
         null,
         {
           params: {
