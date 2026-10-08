@@ -1,6 +1,117 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "../services/api";
+
+const infoPanels = {
+  features: {
+    eyebrow: "BUILT FOR QUALITY TEAMS",
+    title: "Inspection clarity, at every step.",
+    description:
+      "Bring visual checks and quality insights into one focused workspace.",
+    items: [
+      {
+        number: "01",
+        title: "Automated inspection",
+        description:
+          "Streamline repetitive visual checks so teams can focus on quality decisions.",
+      },
+      {
+        number: "02",
+        title: "AI-assisted detection",
+        description:
+          "Surface potential product anomalies with computer-vision inspection.",
+      },
+      {
+        number: "03",
+        title: "Quality analytics",
+        description:
+          "Review inspection outcomes and track performance from a central workspace.",
+      },
+    ],
+    note: "Designed to support consistent, informed quality workflows.",
+  },
+  workflow: {
+    eyebrow: "A CLEARER WORKFLOW",
+    title: "From product image to quality insight.",
+    description:
+      "A straightforward process helps your team move from inspection to action.",
+    items: [
+      {
+        number: "01",
+        title: "Start an inspection",
+        description:
+          "Choose the inspection workflow that fits your operation and provide an image.",
+      },
+      {
+        number: "02",
+        title: "Review AI findings",
+        description:
+          "Examine detected anomalies and inspection results in context.",
+      },
+      {
+        number: "03",
+        title: "Track quality",
+        description:
+          "Use inspection history and analytics to follow outcomes over time.",
+      },
+    ],
+    note: "Your available tools depend on the permissions assigned to your account.",
+  },
+  security: {
+    eyebrow: "SECURE WORKSPACE ACCESS",
+    title: "Your inspection workspace stays protected.",
+    description:
+      "VisionInspect AI uses authenticated access to help protect workspace features and account sessions.",
+    items: [
+      {
+        number: "01",
+        title: "Account-based sign-in",
+        description:
+          "Sign in with the email address and password associated with your workspace account.",
+      },
+      {
+        number: "02",
+        title: "Authenticated sessions",
+        description:
+          "Access to inspection tools is managed through authenticated sessions.",
+      },
+      {
+        number: "03",
+        title: "Workspace permissions",
+        description:
+          "Available tools are determined by the role assigned to your account.",
+      },
+    ],
+    note: "Never share your password. Contact your workspace administrator if you suspect unauthorized access.",
+  },
+  help: {
+    eyebrow: "SIGN-IN SUPPORT",
+    title: "A little help getting started.",
+    description:
+      "Try these steps if you cannot access your inspection workspace.",
+    items: [
+      {
+        number: "01",
+        title: "Check your credentials",
+        description:
+          "Make sure you are using your work email and enter your password carefully.",
+      },
+      {
+        number: "02",
+        title: "Confirm your access",
+        description:
+          "Ask your workspace administrator to verify that your account is active.",
+      },
+      {
+        number: "03",
+        title: "Still having trouble?",
+        description:
+          "Contact your workspace administrator for account or password assistance.",
+      },
+    ],
+    note: "For security, do not share your password in a support request.",
+  },
+};
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -8,8 +119,31 @@ function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [theme, setTheme] = useState(
+    () => (localStorage.getItem("theme") === "dark" ? "dark" : "light")
+  );
+  const [activePanel, setActivePanel] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const infoDialogRef = useRef(null);
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const dialog = infoDialogRef.current;
+    if (!dialog) return;
+
+    if (activePanel && !dialog.open) {
+      dialog.showModal();
+    } else if (!activePanel && dialog.open) {
+      dialog.close();
+    }
+  }, [activePanel]);
+
+  const setPageTheme = (nextTheme) => {
+    setTheme(nextTheme);
+    localStorage.setItem("theme", nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -40,6 +174,113 @@ function Login() {
 
   return (
     <div className="login-page">
+      <header className="login-header">
+        <Link
+          className="login-header-brand"
+          to="/login"
+          aria-label="VisionInspect AI home"
+        >
+          <span className="login-header-logo">V</span>
+          <span className="login-header-wordmark">
+            <strong>VisionInspect AI</strong>
+            <small>QUALITY INTELLIGENCE</small>
+          </span>
+        </Link>
+
+        <nav
+          id="login-main-navigation"
+          className={`login-header-nav${menuOpen ? " is-open" : ""}`}
+          aria-label="Main navigation"
+        >
+          <button
+            className="header-feature-link"
+            type="button"
+            onClick={() => {
+              setActivePanel("features");
+              setMenuOpen(false);
+            }}
+          >
+            Features
+          </button>
+          <button
+            className="header-how-link"
+            type="button"
+            onClick={() => {
+              setActivePanel("workflow");
+              setMenuOpen(false);
+            }}
+          >
+            How It Works
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActivePanel("security");
+              setMenuOpen(false);
+            }}
+          >
+            Security
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActivePanel("help");
+              setMenuOpen(false);
+            }}
+          >
+            Help
+          </button>
+        </nav>
+
+        <div className="login-header-actions">
+          <button
+            className="login-menu-toggle"
+            type="button"
+            aria-label={
+              menuOpen ? "Close navigation menu" : "Open navigation menu"
+            }
+            aria-expanded={menuOpen}
+            aria-controls="login-main-navigation"
+            onClick={() => setMenuOpen((isOpen) => !isOpen)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="19"
+              height="19"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              {menuOpen ? (
+                <path d="m6 6 12 12M18 6 6 18" />
+              ) : (
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              )}
+            </svg>
+          </button>
+          <div className="theme-switch" role="group" aria-label="Appearance">
+            <button
+              type="button"
+              className={theme === "light" ? "active" : ""}
+              aria-pressed={theme === "light"}
+              onClick={() => setPageTheme("light")}
+            >
+              Day
+            </button>
+            <button
+              type="button"
+              className={theme === "dark" ? "active" : ""}
+              aria-pressed={theme === "dark"}
+              onClick={() => setPageTheme("dark")}
+            >
+              Night
+            </button>
+          </div>
+        </div>
+      </header>
+
       {/* LEFT BRAND PANEL */}
       <section className="login-brand">
         <div className="brand-header">
@@ -51,7 +292,7 @@ function Login() {
           </div>
         </div>
 
-        <div className="brand-content">
+        <div className="brand-content" id="how-it-works">
           <div className="eyebrow">AI-POWERED MANUFACTURING</div>
 
           <h1>
@@ -65,7 +306,7 @@ function Login() {
             automated defect detection.
           </p>
 
-          <div className="feature-list">
+          <div className="feature-list" id="features">
             <div className="feature">
               <div className="feature-icon">✓</div>
               <div>
@@ -100,11 +341,6 @@ function Login() {
       {/* LOGIN PANEL */}
       <section className="login-form-section">
         <div className="login-form-container">
-          <div className="mobile-logo">
-            <div className="brand-logo">V</div>
-            <strong>VisionInspect AI</strong>
-          </div>
-
           <div className="form-heading">
             <span className="form-label">SECURE ACCESS</span>
 
@@ -216,12 +452,96 @@ function Login() {
             <Link to="/register">Create account</Link>
           </div>
 
-          <div className="security-note">
+          <div className="security-note" id="security">
             <span>🔒</span>
             Secure authentication powered by JWT
           </div>
+          <p className="login-help-note" id="help">
+            Need help? Contact your workspace administrator.
+          </p>
         </div>
       </section>
+
+      <dialog
+        ref={infoDialogRef}
+        className="login-info-dialog"
+        aria-labelledby="login-info-title"
+        aria-describedby="login-info-description"
+        onClose={() => setActivePanel(null)}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) {
+            infoDialogRef.current?.close();
+          }
+        }}
+      >
+        {activePanel && (
+          <div className="login-info-content">
+            <div className="login-info-topline">
+              <span className="login-info-icon" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+                <span />
+              </span>
+              <button
+                className="login-info-close"
+                type="button"
+                aria-label="Close information panel"
+                onClick={() => infoDialogRef.current?.close()}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+
+            <span className="login-info-eyebrow">
+              {infoPanels[activePanel].eyebrow}
+            </span>
+            <h2 id="login-info-title">{infoPanels[activePanel].title}</h2>
+            <p
+              className="login-info-description"
+              id="login-info-description"
+            >
+              {infoPanels[activePanel].description}
+            </p>
+
+            <div className="login-info-items">
+              {infoPanels[activePanel].items.map((item) => (
+                <article className="login-info-item" key={item.number}>
+                  <span className="login-info-number">{item.number}</span>
+                  <div>
+                    <h3>{item.title}</h3>
+                    <p>{item.description}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="login-info-note">
+              <span aria-hidden="true">i</span>
+              <p>{infoPanels[activePanel].note}</p>
+            </div>
+
+            <button
+              className="login-info-done"
+              type="button"
+              onClick={() => infoDialogRef.current?.close()}
+            >
+              Back to sign in
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        )}
+      </dialog>
     </div>
   );
 }
