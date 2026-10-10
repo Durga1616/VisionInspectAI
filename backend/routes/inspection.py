@@ -33,23 +33,20 @@ ML_DIR = os.path.abspath(
     )
 )
 
-if ML_DIR not in sys.path:
-    sys.path.append(ML_DIR)
+ENABLE_ML_INSPECTION = os.getenv(
+    "ENABLE_ML_INSPECTION",
+    "true",
+).strip().lower() in {"1", "true", "yes", "on"}
 
+inspect_image = None
+if ENABLE_ML_INSPECTION:
+    if ML_DIR not in sys.path:
+        sys.path.append(ML_DIR)
 
-try:
-
-    from inference.inspection_pipeline import (
-        inspect_image
-    )
-
-except Exception as error:
-
-    print(
-        f"ML pipeline import error: {error}"
-    )
-
-    inspect_image = None
+    try:
+        from inference.inspection_pipeline import inspect_image
+    except Exception as error:
+        print(f"ML pipeline import error: {error}")
 
 
 # ============================================================
@@ -116,7 +113,17 @@ def validate_category(category: str) -> str:
     return normalized
 
 
+def require_ml_inspection() -> None:
+    if inspect_image is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Image inspection is disabled or unavailable on this deployment",
+        )
+
+
 async def run_uploaded_inspection(file: UploadFile, category: str, current_user: dict, db: Session):
+    require_ml_inspection()
+
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
@@ -189,6 +196,7 @@ async def upload_inspection_image(
         get_db
     )
 ):
+    require_ml_inspection()
 
     # --------------------------------------------------------
     # Validate image type
@@ -298,30 +306,6 @@ async def upload_inspection_image(
     # RUN ML PIPELINE
     # ========================================================
 
-    if inspect_image is None:
-
-        inspection.status = "failed"
-
-        inspection.result = json.dumps({
-
-            "error":
-                "ML inspection pipeline "
-                "could not be imported"
-        })
-
-        db.commit()
-
-        raise HTTPException(
-
-            status_code=500,
-
-            detail=(
-                "ML inspection pipeline "
-                "is unavailable"
-            )
-        )
-
-
     try:
 
         # ----------------------------------------------------
@@ -414,6 +398,8 @@ async def upload_batch(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_ml_inspection()
+
     category = validate_category(category)
     if not files:
         raise HTTPException(status_code=400, detail="Select at least one image")
@@ -477,6 +463,8 @@ def retry_inspection(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_ml_inspection()
+
     inspection = (
         db.query(Inspection)
         .filter(
@@ -498,9 +486,6 @@ def retry_inspection(
     file_path = os.path.join(UPLOAD_DIR, inspection.stored_filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Original inspection image is unavailable")
-    if inspect_image is None:
-        raise HTTPException(status_code=500, detail="ML inspection pipeline is unavailable")
-
     try:
         inspection.status = "processing"
         db.commit()
