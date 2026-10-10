@@ -1,0 +1,38 @@
+diff --git a/backend/requirements-render.txt b/backend/requirements-render.txt
+index 94047a9..c56a0e9 100644
+--- a/backend/requirements-render.txt
++++ b/backend/requirements-render.txt
+@@ -6,3 +6,6 @@ python-jose[cryptography]==3.5.0
+ python-multipart==0.0.32
+ SQLAlchemy==2.0.52
+ uvicorn==0.52.4
++numpy==2.5.2
++pillow==12.3.0
++ultralytics==8.4.142
+diff --git a/backend/routes/inspection.py b/backend/routes/inspection.py
+index 6bc0a36..7321468 100644
+--- a/backend/routes/inspection.py
++++ b/backend/routes/inspection.py
+@@ -64,7 +64,8 @@ router = APIRouter(
+ # ============================================================
+ 
+ UPLOAD_DIR = os.path.abspath(
+-    os.path.join(
++    os.getenv("UPLOAD_DIR")
++    or os.path.join(
+         os.path.dirname(__file__),
+         "..",
+         "uploads"
+diff --git a/render.yaml b/render.yaml
+index 49fe7b1..a425b82 100644
+--- a/render.yaml
++++ b/render.yaml
+@@ -4,7 +4,7 @@ services:
+     runtime: python
+     plan: starter
+     rootDir: backend
+-    buildCommand: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.0 torchvision==0.29.0 && pip install -r requirements-render.txt
++    buildCommand: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.0 torchvision==0.29.0 && pip install -r requirements-render.txt && pip uninstall -y opencv-python && pip install --no-deps opencv-python-headless==5.0.0.93
+     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+     healthCheckPath: /health
+     disk:
