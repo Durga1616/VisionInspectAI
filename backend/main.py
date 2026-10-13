@@ -18,10 +18,14 @@ app = FastAPI(
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://vision-inspect-ai-mauve-seven.vercel.app",
 ]
+
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
-    allowed_origins.append(frontend_url.rstrip("/"))
+    frontend_url = frontend_url.rstrip("/")
+    if frontend_url not in allowed_origins:
+        allowed_origins.append(frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
