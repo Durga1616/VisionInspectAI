@@ -41,7 +41,7 @@ function Register() {
   };
 
   return (
-    <div className="login-page">
+   <div className="login-page register-page">
 
       <section className="login-brand">
 
