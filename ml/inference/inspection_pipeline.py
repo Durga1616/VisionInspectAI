@@ -1,4 +1,5 @@
 import json
+import gc
 from pathlib import Path
 
 import cv2
@@ -63,6 +64,7 @@ DEVICE = torch.device(
     "cuda" if torch.cuda.is_available()
     else "cpu"
 )
+torch.set_num_threads(1)
 
 
 # ============================================================
@@ -346,12 +348,8 @@ def get_yolo_model_path(category):
 # YOLO DEFECT LOCALIZATION
 # ============================================================
 #
-# Robust inference:
-# 1. High-resolution YOLO inference
-# 2. Augmented YOLO inference
-# 3. Merge duplicate detections
-#
-# YOLO remains the primary localization model.
+# Single-pass inference keeps CPU memory use low enough for constrained
+# deployments. The detector was trained at its standard 640-pixel resolution.
 # ============================================================
 
 def localize_defect(
@@ -370,10 +368,6 @@ def localize_defect(
             f"{model_path}"
         )
 
-    model = YOLO(
-        str(model_path)
-    )
-
     source_image = cv2.imread(str(image_path))
 
     if source_image is None:
@@ -387,8 +381,6 @@ def localize_defect(
         category,
         YOLO_CONFIDENCE,
     )
-
-    gray = cv2.cvtColor(source_image, cv2.COLOR_BGR2GRAY)
 
     # Estimate the product from pixels that differ from the image-border
     # background. A fixed dark-pixel threshold fails on dark products placed
@@ -431,154 +423,144 @@ def localize_defect(
             max_area = area
             product_bbox = (x, y, x + w, y + h)
 
-    # --------------------------------------------------------
-    # PASS 1: High-resolution inference
-    # --------------------------------------------------------
-    results_high = model.predict(
-        source=str(image_path),
-        imgsz=1280,
-        conf=YOLO_CONFIDENCE,
-        iou=0.45,
-        max_det=20,
-        verbose=False
+    del source_image, border_pixels, color_distance, foreground, kernel
+    del labels, stats
+    gc.collect()
+
+    model = YOLO(
+        str(model_path)
     )
 
-    # --------------------------------------------------------
-    # PASS 2: Augmented inference
-    # --------------------------------------------------------
-    results_aug = model.predict(
+    results = model.predict(
         source=str(image_path),
-        imgsz=1280,
+        imgsz=640,
         conf=YOLO_CONFIDENCE,
         iou=0.45,
         max_det=20,
-        augment=True,
         verbose=False
     )
 
     raw_detections = []
 
-    for results in [results_high, results_aug]:
+    for result in results:
 
-        for result in results:
+        if result.boxes is None:
+            continue
 
-            if result.boxes is None:
+        for box in result.boxes:
+            coordinates = (
+                box.xyxy[0]
+                .cpu()
+                .numpy()
+                .tolist()
+            )
+
+            confidence = float(
+                box.conf[0]
+                .cpu()
+                .item()
+            )
+
+            if confidence < category_confidence:
                 continue
 
-            for box in result.boxes:
+            x1, y1, x2, y2 = coordinates
 
-                coordinates = (
-                    box.xyxy[0]
-                    .cpu()
-                    .numpy()
-                    .tolist()
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            box_area = (x2 - x1) * (y2 - y1)
+            touches_border = (
+                x1 <= 1
+                or y1 <= 1
+                or x2 >= image_width - 1
+                or y2 >= image_height - 1
+            )
+
+            # Discard large border-touching boxes from the background. They
+            # are usually false positives from dark margins or the image
+            # frame, not actual product defects.
+            if (
+                touches_border
+                and (
+                    box_area / image_area >= 0.03
+                    or category in {
+                        "carpet",
+                        "toothbrush",
+                        "transistor",
+                    }
                 )
+            ):
+                continue
 
-                confidence = float(
-                    box.conf[0]
-                    .cpu()
-                    .item()
-                )
-
-                if confidence < category_confidence:
-                    continue
-
-                x1, y1, x2, y2 = coordinates
-
-                if x2 <= x1 or y2 <= y1:
-                    continue
-
-                box_area = (x2 - x1) * (y2 - y1)
-                touches_border = (
-                    x1 <= 1
-                    or y1 <= 1
-                    or x2 >= image_width - 1
-                    or y2 >= image_height - 1
-                )
-
-                # Discard large border-touching boxes from the background. They
-                # are usually false positives from dark margins or the image
-                # frame, not actual product defects.
+            # Carpet images can contain curtains, walls, and furniture at
+            # the frame edges. Those regions are not the carpet surface.
+            if category == "carpet":
+                box_center_x = (x1 + x2) / 2.0
+                box_center_y = (y1 + y2) / 2.0
                 if (
-                    touches_border
-                    and (
-                        box_area / image_area >= 0.03
-                        or category in {
-                            "carpet",
-                            "toothbrush",
-                            "transistor",
-                        }
-                    )
+                    box_center_x < image_width * 0.25
+                    or box_center_x > image_width * 0.80
+                    or box_center_y < image_height * 0.30
                 ):
                     continue
 
-                # Carpet images can contain curtains, walls, and furniture at
-                # the frame edges. Those regions are not the carpet surface.
-                if category == "carpet":
-                    box_center_x = (x1 + x2) / 2.0
-                    box_center_y = (y1 + y2) / 2.0
-                    if (
-                        box_center_x < image_width * 0.25
-                        or box_center_x > image_width * 0.80
-                        or box_center_y < image_height * 0.30
-                    ):
-                        continue
+            # The toothbrush dataset uses a centered product on a dark
+            # background. Edge detections are background artifacts from
+            # this low-precision detector, not valid defect locations.
+            if category == "toothbrush":
+                box_center_x = (x1 + x2) / 2.0
+                if (
+                    box_center_x < image_width * 0.25
+                    or box_center_x > image_width * 0.75
+                ):
+                    continue
 
-                # The toothbrush dataset uses a centered product on a dark
-                # background. Edge detections are background artifacts from
-                # this low-precision detector, not valid defect locations.
-                if category == "toothbrush":
-                    box_center_x = (x1 + x2) / 2.0
-                    if (
-                        box_center_x < image_width * 0.25
-                        or box_center_x > image_width * 0.75
-                    ):
-                        continue
+            # Reject detections placed far outside the product region when a
+            # dominant product blob has been found.
+            if product_bbox is not None:
+                px0, py0, px1, py1 = product_bbox
+                product_area = max(1.0, (px1 - px0) * (py1 - py0))
 
-                # Reject detections placed far outside the product region when a
-                # dominant product blob has been found. A true defect should
-                # overlap the product silhouette substantially, not sit in the
-                # background or padded blank areas.
-                if product_bbox is not None:
-                    px0, py0, px1, py1 = product_bbox
-                    product_area = max(1.0, (px1 - px0) * (py1 - py0))
+                inter_x1 = max(x1, px0)
+                inter_y1 = max(y1, py0)
+                inter_x2 = min(x2, px1)
+                inter_y2 = min(y2, py1)
+                inter_w = max(0.0, inter_x2 - inter_x1)
+                inter_h = max(0.0, inter_y2 - inter_y1)
+                overlap_area = inter_w * inter_h
+                overlap_ratio = overlap_area / max(box_area, 1.0)
+                box_center_x = (x1 + x2) / 2.0
+                box_center_y = (y1 + y2) / 2.0
 
-                    inter_x1 = max(x1, px0)
-                    inter_y1 = max(y1, py0)
-                    inter_x2 = min(x2, px1)
-                    inter_y2 = min(y2, py1)
-                    inter_w = max(0.0, inter_x2 - inter_x1)
-                    inter_h = max(0.0, inter_y2 - inter_y1)
-                    overlap_area = inter_w * inter_h
-                    overlap_ratio = overlap_area / max(box_area, 1.0)
-                    box_center_x = (x1 + x2) / 2.0
-                    box_center_y = (y1 + y2) / 2.0
+                if (
+                    box_center_x < px0 or box_center_x > px1
+                    or box_center_y < py0 or box_center_y > py1
+                ):
+                    continue
 
-                    if (
-                        box_center_x < px0 or box_center_x > px1 or
-                        box_center_y < py0 or box_center_y > py1
-                    ):
-                        continue
+                if overlap_ratio < 0.20:
+                    continue
 
-                    if overlap_ratio < 0.20:
-                        continue
+                if box_area > 0.75 * product_area and overlap_area < 0.25 * product_area:
+                    continue
 
-                    if box_area > 0.75 * product_area and overlap_area < 0.25 * product_area:
-                        continue
+            raw_detections.append({
+                "class": "defect",
+                "confidence": confidence,
+                "bbox": {
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2
+                }
+            })
 
-                raw_detections.append({
-                    "class": "defect",
-                    "confidence": confidence,
-                    "bbox": {
-                        "x1": x1,
-                        "y1": y1,
-                        "x2": x2,
-                        "y2": y2
-                    }
-                })
+    del results, model
+    gc.collect()
 
     # --------------------------------------------------------
-    # Remove duplicate boxes from the two inference passes
+    # Remove duplicate boxes returned by the detector.
     # --------------------------------------------------------
     def box_iou(box_a, box_b):
 
@@ -1035,6 +1017,8 @@ def inspect_image(
             threshold
         )
     )
+    del autoencoder, image_tensor
+    gc.collect()
 
     print(
         f"Error     : "

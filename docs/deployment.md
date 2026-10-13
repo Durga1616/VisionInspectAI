@@ -3,6 +3,10 @@
 The repository includes a Render Blueprint for the web app, API, PostgreSQL
 database, and persistent image uploads. The API runs the CPU version of PyTorch;
 model inference will be slower than on a GPU.
+The inspection pipeline uses a single 640-pixel YOLO pass and one CPU thread to
+reduce peak memory use. Render's 512 MB free instance can still run out of
+memory during inference; use a paid backend instance with at least 2 GB RAM for
+reliable deployment.
 
 ## Deploy with Render
 

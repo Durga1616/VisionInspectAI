@@ -224,11 +224,14 @@ def test_localize_defect_returns_no_box_when_yolo_has_no_box(
     image[50:150, 80:120] = 80
     assert cv2.imwrite(str(image_path), image)
 
+    inference_options = {}
+
     class EmptyYOLO:
         def __init__(self, path):
             self.path = path
 
         def predict(self, **kwargs):
+            inference_options.update(kwargs)
             return [type("Result", (), {"boxes": []})()]
 
     model_path = (
@@ -244,3 +247,5 @@ def test_localize_defect_returns_no_box_when_yolo_has_no_box(
     detections = pipeline.localize_defect("screw", image_path)
 
     assert detections == []
+    assert inference_options["imgsz"] == 640
+    assert "augment" not in inference_options
