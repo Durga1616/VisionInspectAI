@@ -19,6 +19,7 @@ allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://vision-inspect-ai-mauve-seven.vercel.app",
+    "https://vision-inspect-ai-durga-bc0f.vercel.app",
 ]
 
 frontend_url = os.getenv("FRONTEND_URL")
