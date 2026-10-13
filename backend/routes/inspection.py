@@ -2,6 +2,8 @@ import os
 import sys
 import uuid
 import json
+import logging
+import tempfile
 
 from fastapi import (
     APIRouter,
@@ -63,19 +65,30 @@ router = APIRouter(
 # UPLOAD CONFIGURATION
 # ============================================================
 
+logger = logging.getLogger(__name__)
+configured_upload_dir = os.getenv("UPLOAD_DIR")
 UPLOAD_DIR = os.path.abspath(
-    os.getenv("UPLOAD_DIR")
-    or os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "uploads"
-    )
+    configured_upload_dir
+    or os.path.join(os.path.dirname(__file__), "..", "uploads")
 )
 
-os.makedirs(
-    UPLOAD_DIR,
-    exist_ok=True
-)
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    if not os.access(UPLOAD_DIR, os.W_OK):
+        raise PermissionError(f"Upload directory is not writable: {UPLOAD_DIR}")
+except OSError as error:
+    if not configured_upload_dir:
+        raise
+
+    UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "visioninspectai-uploads")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    logger.warning(
+        "Configured UPLOAD_DIR %s is unavailable (%s); using temporary "
+        "directory %s. Uploaded files will not persist across restarts.",
+        configured_upload_dir,
+        error,
+        UPLOAD_DIR,
+    )
 
 
 ALLOWED_TYPES = {

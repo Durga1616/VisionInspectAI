@@ -28,6 +28,9 @@ corresponding `name` in `render.yaml`. Also update the frontend URL entered for
 
 - Create an account in the deployed app and test login and image inspection.
 - The `visioninspectai-uploads` disk keeps uploaded images across deploys.
+- If the backend runs without an attached persistent disk (for example, on a
+  free instance), set `UPLOAD_DIR` to `/tmp/visioninspectai-uploads`. These
+  uploads are temporary and may be removed when the instance restarts.
 - Keep `JWT_SECRET_KEY` and `DATABASE_URL` in Render's environment settings;
   never commit production secrets to Git.
 - CPU model inference can be slow. The first deploy also installs PyTorch and
