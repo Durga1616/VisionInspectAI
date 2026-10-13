@@ -556,6 +556,8 @@ def localize_defect(
                 }
             })
 
+    result = None
+    box = None
     del results, model
     gc.collect()
 
