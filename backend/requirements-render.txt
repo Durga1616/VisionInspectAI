@@ -6,3 +6,6 @@ python-jose[cryptography]==3.5.0
 python-multipart==0.0.32
 SQLAlchemy==2.0.52
 uvicorn==0.52.4
+numpy==2.5.2
+pillow==12.3.0
+ultralytics==8.4.142

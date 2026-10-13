@@ -32,3 +32,19 @@ corresponding `name` in `render.yaml`. Also update the frontend URL entered for
   never commit production secrets to Git.
 - CPU model inference can be slow. The first deploy also installs PyTorch and
   the ML packages and may take several minutes.
+
+## Deploying the frontend on Vercel
+
+If the frontend is hosted separately on Vercel, set `VITE_API_URL` in the
+Vercel project's environment variables to the API service origin (for example,
+`https://visioninspectai-api.onrender.com`, without a path), then redeploy the
+frontend. Set the API service's `FRONTEND_URL` to the exact Vercel site origin
+so the browser's API requests are allowed by CORS. Redeploy the API after
+changing its environment variables.
+
+For the current deployment, the Vercel frontend uses
+`https://visioninspectai-backend-e7lw.onrender.com` as its API origin, and its
+site origin is `https://vision-inspect-ai-mauve-seven.vercel.app`. Confirm
+these match the `VITE_API_URL` and `FRONTEND_URL` values in the respective
+hosting dashboards. If the API's `/health` endpoint returns Render's
+`no-deploy` error, deploy the backend service before testing inspections.

@@ -64,7 +64,8 @@ router = APIRouter(
 # ============================================================
 
 UPLOAD_DIR = os.path.abspath(
-    os.path.join(
+    os.getenv("UPLOAD_DIR")
+    or os.path.join(
         os.path.dirname(__file__),
         "..",
         "uploads"
